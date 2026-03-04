@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "kernel",
+    "intent-bus",
+    "sart",
+    "wasm-runtime",
+    "svfs",
+    "glass-box",
+    "network",
+    "inference-engine",
+    "settings",
+    "primary-agent",
+    "modules/display-module",
+    "modules/input-module",
+    "modules/storage-module",
+    "modules/settings-module",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"   # kernels must not unwind
+
+[profile.dev]
+panic = "abort"
