@@ -116,18 +116,41 @@ pub extern "C" fn _start() -> ! {
         println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
     }
 
-    // 9. Enable interrupts — APIC and IDT must be ready before this
-    x86_64::instructions::interrupts::enable();
-    println!("[OK] Interrupts enabled");
+    // 9. SART — register test agents
+    {
+        use sart::Sart;
+        static SART: spin::Mutex<Sart> = spin::Mutex::new(Sart::new());
 
-    // Keyboard echo loop — characters typed in QEMU appear on screen.
-    // This is a temporary test loop; Phase 05 replaces it with the SART scheduler.
-    println!("Type something (keyboard test):");
-    loop {
-        if let Some(c) = crate::drivers::keyboard::try_read_char() {
-            print!("{}", c);
+        let tick = crate::timer::ticks();
+        let mut sart = SART.lock();
+        sart.register(
+            alloc::boxed::Box::new(agents::heartbeat::HeartbeatAgent::new()),
+            &[],
+            tick,
+        );
+        sart.register(
+            alloc::boxed::Box::new(agents::echo::EchoAgent),
+            &["system.heartbeat"],
+            tick,
+        );
+        println!(
+            "[OK] SART: {} agents registered {:?}",
+            sart.agent_count(),
+            sart.agent_names()
+        );
+        drop(sart);
+
+        // 10. Enable interrupts — APIC and IDT must be ready before this
+        x86_64::instructions::interrupts::enable();
+        println!("[OK] Interrupts enabled — SART running");
+
+        // Kernel idle loop — SART is driven by the main loop, woken by HLT
+        // on each timer interrupt (100 Hz). This avoids running agents inside
+        // the ISR context where heap allocation and mutex locking are unsafe.
+        loop {
+            SART.lock().tick(crate::timer::ticks());
+            x86_64::instructions::hlt();
         }
-        x86_64::instructions::hlt();
     }
 }
 
