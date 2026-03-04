@@ -227,6 +227,7 @@ dependencies = [
  "linked_list_allocator",
  "noto-sans-mono-bitmap",
  "pc-keyboard",
+ "sart",
  "serde",
  "spin",
  "uart_16550",

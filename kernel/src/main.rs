@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod agents;
 mod display;
 mod drivers;
 mod gdt;
