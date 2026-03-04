@@ -1,5 +1,5 @@
 [package]
-name = "squirrel-intent-bus"
+name = "intent-bus"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,3 +7,9 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+spin = "0.9"
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+
+[features]
+default = []
