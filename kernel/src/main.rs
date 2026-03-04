@@ -26,6 +26,14 @@ static MEMORY_MAP_REQ: MemoryMapRequest = MemoryMapRequest::new();
 #[used]
 static BASE_REVISION: limine::BaseRevision = limine::BaseRevision::new();
 
+// Embed the compiled hello-module WASM binary at compile time.
+// This is 625 bytes of WebAssembly bytecode that gets included
+// directly in the kernel binary. In Phase 07, modules will be
+// loaded from SVFS instead.
+static HELLO_MODULE_WASM: &[u8] = include_bytes!(
+    "../../modules/hello-module/target/wasm32-unknown-unknown/release/hello_module.wasm"
+);
+
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     assert!(
@@ -116,7 +124,13 @@ pub extern "C" fn _start() -> ! {
         println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
     }
 
-    // 9. SART — register test agents
+    // 9. WASM runtime — set up the log bridge so WASM modules can print
+    wasm_runtime::set_log_fn(|msg| {
+        println!("{}", msg);
+    });
+    println!("[OK] WASM runtime initialized");
+
+    // 10. SART — register test agents + WASM modules
     {
         use sart::Sart;
         static SART: spin::Mutex<Sart> = spin::Mutex::new(Sart::new());
@@ -133,6 +147,22 @@ pub extern "C" fn _start() -> ! {
             &["system.heartbeat"],
             tick,
         );
+
+        // Load the hello-module WASM binary and register it as a SART agent.
+        // This is where the Capability Fabric comes alive: a WASM module
+        // becomes a first-class agent, scheduled alongside native Rust agents.
+        match wasm_runtime::WasmModule::load("hello-module", HELLO_MODULE_WASM, &[]) {
+            Ok(module) => match module.instantiate() {
+                Ok(agent) => {
+                    // hello-module has no subscriptions — it only sends intents.
+                    sart.register(alloc::boxed::Box::new(agent), &[], tick);
+                    println!("[OK] WASM: hello-module loaded ({} bytes)", HELLO_MODULE_WASM.len());
+                }
+                Err(e) => println!("[WARN] hello-module instantiation failed: {:?}", e),
+            },
+            Err(e) => println!("[WARN] hello-module load failed: {:?}", e),
+        }
+
         println!(
             "[OK] SART: {} agents registered {:?}",
             sart.agent_count(),
@@ -140,7 +170,7 @@ pub extern "C" fn _start() -> ! {
         );
         drop(sart);
 
-        // 10. Enable interrupts — APIC and IDT must be ready before this
+        // 11. Enable interrupts — APIC and IDT must be ready before this
         x86_64::instructions::interrupts::enable();
         println!("[OK] Interrupts enabled — SART running");
 
