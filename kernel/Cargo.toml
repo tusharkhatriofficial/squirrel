@@ -15,6 +15,7 @@ volatile = "0.5"
 uart_16550 = "0.4"
 noto-sans-mono-bitmap = { version = "0.3", features = ["regular", "size_16"] }
 linked_list_allocator = "0.10"
+pc-keyboard = "0.7"
 
 [features]
 default = []
