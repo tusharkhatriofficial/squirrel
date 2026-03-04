@@ -329,6 +329,13 @@ version = "0.1.0"
 [[package]]
 name = "squirrel-glass-box"
 version = "0.1.0"
+dependencies = [
+ "intent-bus",
+ "postcard",
+ "sart",
+ "serde",
+ "spin",
+]
 
 [[package]]
 name = "squirrel-inference-engine"
@@ -350,6 +357,7 @@ dependencies = [
  "sart",
  "serde",
  "spin",
+ "squirrel-glass-box",
  "svfs",
  "uart_16550",
  "volatile 0.5.4",
@@ -456,6 +464,7 @@ dependencies = [
  "sart",
  "serde",
  "spin",
+ "squirrel-glass-box",
  "wasmi",
 ]
 
