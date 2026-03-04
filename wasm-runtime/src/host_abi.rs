@@ -150,7 +150,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) {
     // ── 3. glass_box_update ─────────────────────────────────────────
     // WASM calls: glass_box_update(key_ptr, key_len, val_ptr, val_len)
     // Updates the module's observable state in the Glass Box.
-    // Stubbed until Phase 08 — for now just reads and discards.
+    //
+    // This is the DIRECT path — WASM modules write straight to the
+    // GlassBoxStore without going through intents (for performance).
+    // The module name is automatically taken from the HostState, so a
+    // WASM module can only update its own Glass Box entry.
     linker
         .func_wrap(
             "squirrel",
@@ -165,10 +169,17 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) {
                     _ => return,
                 };
                 let data = mem.data(caller.as_context());
-                let _key = read_wasm_bytes(data, key_ptr, key_len);
-                let _val = read_wasm_bytes(data, val_ptr, val_len);
-                // Glass Box integration comes in Phase 08.
-                // For now, the data is read but not stored.
+                let key_bytes = read_wasm_bytes(data, key_ptr, key_len);
+                let val_bytes = read_wasm_bytes(data, val_ptr, val_len);
+
+                // Parse key and value as UTF-8 strings, then update the store
+                if let (Ok(key_str), Ok(val_str)) = (
+                    core::str::from_utf8(&key_bytes),
+                    core::str::from_utf8(&val_bytes),
+                ) {
+                    let module_name = &caller.as_context().data().module_name;
+                    glass_box::GLASS_BOX.update(module_name, key_str, val_str);
+                }
             },
         )
         .expect("failed to register glass_box_update");
