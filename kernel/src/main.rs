@@ -111,26 +111,59 @@ pub extern "C" fn _start() -> ! {
         }
     }
 
-    // 6. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
+    // 6. SVFS — content-addressed semantic storage (RAM-backed for MVP)
+    {
+        // Create a 2 MB RAM disk (4096 blocks × 512 bytes).
+        // This is non-persistent (lost on reboot) but lets us test
+        // the full SVFS stack: store, retrieve, tag queries.
+        let ram_disk = alloc::boxed::Box::new(svfs::RamBlk::new(4096));
+        svfs::init(ram_disk);
+        println!("[OK] SVFS initialized ({} objects)", svfs::SVFS.get().unwrap().object_count());
+
+        // Self-test: store an object, retrieve it, query by tag
+        let svfs_inst = svfs::SVFS.get().unwrap();
+
+        let hash = svfs_inst
+            .store(
+                b"Hello, SVFS!",
+                svfs::ObjectType::Data,
+                Some("test-object"),
+                &["test", "hello"],
+            )
+            .expect("SVFS store failed");
+
+        let retrieved = svfs_inst.retrieve(&hash).expect("SVFS retrieve failed");
+        assert_eq!(retrieved, b"Hello, SVFS!");
+        println!("[OK] SVFS self-test: store+retrieve verified");
+
+        let found = svfs_inst.find_by_tag("test");
+        assert!(!found.is_empty(), "SVFS tag query failed");
+        println!(
+            "[OK] SVFS self-test: tag query found {} object(s)",
+            found.len()
+        );
+    }
+
+    // 7. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
     crate::interrupts::apic::init();
     println!("[OK] APIC + timer (100 Hz)");
 
-    // 7. PS/2 keyboard driver
+    // 8. PS/2 keyboard driver
     crate::drivers::keyboard::init();
     println!("[OK] Keyboard");
 
-    // 8. Scan for virtio-net device (informational — real driver in Phase 09)
+    // 9. Scan for virtio-net device (informational — real driver in Phase 09)
     if crate::drivers::network::virtio_net::VirtioNetDevice::find().is_none() {
         println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
     }
 
-    // 9. WASM runtime — set up the log bridge so WASM modules can print
+    // 10. WASM runtime — set up the log bridge so WASM modules can print
     wasm_runtime::set_log_fn(|msg| {
         println!("{}", msg);
     });
     println!("[OK] WASM runtime initialized");
 
-    // 10. SART — register test agents + WASM modules
+    // 11. SART — register test agents + WASM modules
     {
         use sart::Sart;
         static SART: spin::Mutex<Sart> = spin::Mutex::new(Sart::new());
@@ -170,7 +203,7 @@ pub extern "C" fn _start() -> ! {
         );
         drop(sart);
 
-        // 11. Enable interrupts — APIC and IDT must be ready before this
+        // 12. Enable interrupts — APIC and IDT must be ready before this
         x86_64::instructions::interrupts::enable();
         println!("[OK] Interrupts enabled — SART running");
 

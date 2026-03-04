@@ -19,6 +19,7 @@ pc-keyboard = "0.7"
 intent-bus = { path = "../intent-bus" }
 sart = { path = "../sart" }
 wasm-runtime = { path = "../wasm-runtime" }
+svfs = { path = "../svfs" }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [features]
