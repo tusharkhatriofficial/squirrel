@@ -20,7 +20,7 @@ intent-bus = { path = "../intent-bus" }
 sart = { path = "../sart" }
 wasm-runtime = { path = "../wasm-runtime" }
 svfs = { path = "../svfs" }
-glass-box = { path = "../glass-box" }
+glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [features]

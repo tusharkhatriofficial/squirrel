@@ -177,7 +177,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) {
                     core::str::from_utf8(&key_bytes),
                     core::str::from_utf8(&val_bytes),
                 ) {
-                    let module_name = &caller.as_context().data().module_name;
+                    let ctx = caller.as_context();
+                    let module_name = &ctx.data().module_name;
                     glass_box::GLASS_BOX.update(module_name, key_str, val_str);
                 }
             },

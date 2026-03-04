@@ -56,6 +56,20 @@ impl Agent for HeartbeatAgent {
             );
             ctx.bus.send(intent);
 
+            // Publish heartbeat state to the Glass Box so it appears in the
+            // real-time overlay. This sends a "glass-box.update" intent which
+            // the GlassBoxAgent picks up and writes to the store.
+            let gb_update = Intent::request(
+                "glass-box.update",
+                "heartbeat",
+                &glass_box::GlassBoxUpdate {
+                    module: alloc::string::String::from("heartbeat"),
+                    key: alloc::string::String::from("beat_count"),
+                    value: alloc::format!("{}", self.beat_count),
+                },
+            );
+            ctx.bus.send(gb_update);
+
             self.last_tick = ctx.tick;
         }
         AgentPoll::Pending

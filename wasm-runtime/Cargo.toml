@@ -14,7 +14,7 @@ intent-bus = { path = "../intent-bus" }
 sart = { path = "../sart" }
 postcard = { version = "1.0", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
-glass-box = { path = "../glass-box" }
+glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
 
 [features]
 default = []
