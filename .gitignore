@@ -1,4 +1,6 @@
 /target
+modules/*/target
+modules/*/Cargo.lock
 *.o
 *.d
 *.img
