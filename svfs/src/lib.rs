@@ -2,6 +2,7 @@
 extern crate alloc;
 
 pub mod block;
+pub mod layout;
 pub mod ram_blk;
 
 pub use block::{BlockDevice, BlockError, BLOCK_SIZE};
