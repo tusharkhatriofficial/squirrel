@@ -4,6 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
+name = "wasm_runtime"
 path = "src/lib.rs"
 
 [dependencies]
+wasmi = { version = "0.31", default-features = false }
+spin = "0.9"
+intent-bus = { path = "../intent-bus" }
+sart = { path = "../sart" }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+
+[features]
+default = []
