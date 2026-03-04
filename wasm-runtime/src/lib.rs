@@ -2,6 +2,11 @@
 extern crate alloc;
 
 pub mod host_abi;
+pub mod runtime;
+pub mod module_agent;
+
+pub use runtime::{WasmError, WasmModule};
+pub use module_agent::ModuleAgent;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
