@@ -1,4 +1,5 @@
 use crate::println;
+use core::sync::atomic::{AtomicU64, Ordering};
 use limine::memory_map::EntryType;
 use limine::response::MemoryMapResponse;
 use spin::Once;
@@ -13,7 +14,12 @@ use vmm::VirtualMemoryManager;
 pub static PMM: Once<spin::Mutex<PhysicalMemoryManager>> = Once::new();
 pub static VMM: Once<spin::Mutex<VirtualMemoryManager>> = Once::new();
 
+/// Limine Higher Half Direct Map offset — converts physical addresses to virtual.
+/// Used by APIC, PCI, and other MMIO drivers.
+pub static HHDM_OFFSET: AtomicU64 = AtomicU64::new(0);
+
 pub fn init(mmap: &MemoryMapResponse, hhdm_offset: u64) {
+    HHDM_OFFSET.store(hhdm_offset, Ordering::Relaxed);
     println!("[Memory] Parsing memory map...");
 
     // Count usable bytes
