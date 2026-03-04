@@ -23,8 +23,8 @@ pub fn init() {
         tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
             const STACK_SIZE: usize = 4096 * 5;
             static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
-            // SAFETY: only written once during init
-            let stack_start = VirtAddr::from_ptr(unsafe { &STACK });
+            // SAFETY: only used once during init, pointer is not dereferenced mutably
+            let stack_start = VirtAddr::from_ptr(&raw const STACK as *const u8);
             stack_start + STACK_SIZE as u64
         };
         tss
@@ -45,7 +45,7 @@ pub fn init() {
         )
     });
 
-    gdt.0.load();
+    gdt.load();
     unsafe {
         CS::set_reg(selectors.code_selector);
         DS::set_reg(selectors.data_selector);

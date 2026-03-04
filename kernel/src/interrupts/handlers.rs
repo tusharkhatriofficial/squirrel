@@ -1,3 +1,4 @@
+use crate::println;
 use x86_64::structures::idt::{InterruptStackFrame, PageFaultErrorCode};
 
 pub extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
