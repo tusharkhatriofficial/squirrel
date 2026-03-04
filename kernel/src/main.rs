@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 
+extern crate alloc;
+
 mod display;
 mod gdt;
 mod interrupts;
@@ -52,7 +54,24 @@ pub extern "C" fn _start() -> ! {
         .expect("no memory map");
     let hhdm = HHDM_REQ.get_response().expect("no HHDM response");
     crate::memory::init(mmap, hhdm.offset());
-    println!("[OK] Memory (stub)");
+    println!("[OK] Memory");
+
+    // Verify alloc works with Box, Vec, String
+    {
+        use alloc::{boxed::Box, string::String, vec};
+        let b = Box::new(0xDEADBEEFu64);
+        assert_eq!(*b, 0xDEADBEEF);
+        let v = vec![1u32, 2, 3, 4, 5];
+        assert_eq!(v.len(), 5);
+        let s = String::from("Squirrel");
+        assert_eq!(s.len(), 8);
+        println!(
+            "[OK] Heap: Box={:#x}, Vec len={}, String={}",
+            *b,
+            v.len(),
+            s
+        );
+    }
 
     println!("Kernel core initialized. Halting until SART is ready.");
     loop {
