@@ -46,11 +46,11 @@ pub extern "C" fn _start() -> ! {
     crate::gdt::init();
     println!("[OK] GDT");
 
-    // 3. IDT (exceptions only for now; hardware IRQs added in Phase 03)
+    // 3. IDT (exceptions + hardware IRQs)
     crate::interrupts::init_idt();
     println!("[OK] IDT");
 
-    // 4. Pass memory map to memory manager (Phase 02 fills this in)
+    // 4. Memory manager: PMM, VMM, heap
     let mmap = MEMORY_MAP_REQ
         .get_response()
         .expect("no memory map");
@@ -75,8 +75,30 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
-    println!("Kernel core initialized. Halting until SART is ready.");
+    // 5. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
+    crate::interrupts::apic::init();
+    println!("[OK] APIC + timer (100 Hz)");
+
+    // 6. PS/2 keyboard driver
+    crate::drivers::keyboard::init();
+    println!("[OK] Keyboard");
+
+    // 7. Scan for virtio-net device (informational — real driver in Phase 09)
+    if crate::drivers::network::virtio_net::VirtioNetDevice::find().is_none() {
+        println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
+    }
+
+    // 8. Enable interrupts — APIC and IDT must be ready before this
+    x86_64::instructions::interrupts::enable();
+    println!("[OK] Interrupts enabled");
+
+    // Keyboard echo loop — characters typed in QEMU appear on screen.
+    // This is a temporary test loop; Phase 05 replaces it with the SART scheduler.
+    println!("Type something (keyboard test):");
     loop {
+        if let Some(c) = crate::drivers::keyboard::try_read_char() {
+            print!("{}", c);
+        }
         x86_64::instructions::hlt();
     }
 }
