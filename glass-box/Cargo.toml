@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
+name = "glass_box"
 path = "src/lib.rs"
 
 [dependencies]
+spin = "0.9"
+intent-bus = { path = "../intent-bus" }
+sart = { path = "../sart" }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
