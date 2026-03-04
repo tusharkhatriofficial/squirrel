@@ -1,0 +1,16 @@
+[package]
+name = "hello-module"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+# This module is an independent crate — not part of the kernel workspace.
+# It compiles to wasm32-unknown-unknown and gets embedded in the kernel
+# via include_bytes!.
+[workspace]
+
+[profile.release]
+opt-level = "s"   # Optimize for small binary size
+lto = true         # Link-time optimization for smaller output
