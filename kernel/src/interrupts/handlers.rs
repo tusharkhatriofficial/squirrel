@@ -32,3 +32,32 @@ pub extern "x86-interrupt" fn page_fault(
 pub extern "x86-interrupt" fn double_fault(frame: InterruptStackFrame, _error: u64) -> ! {
     panic!("DOUBLE FAULT\n{:#?}", frame);
 }
+
+// --- Hardware IRQ handlers (vectors 0x20+) ---
+
+/// Vector 0x20: APIC Timer — fires at 100 Hz.
+/// Increments the global tick counter. SART scheduler hooks in at Phase 05.
+pub extern "x86-interrupt" fn timer(_frame: InterruptStackFrame) {
+    crate::timer::TICK.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    crate::interrupts::apic::APIC.lock().send_eoi();
+}
+
+/// Vector 0x21: PS/2 Keyboard — fires on every keypress/release.
+/// Reads the scancode from port 0x60 and hands it to the keyboard driver.
+pub extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {
+    use x86_64::instructions::port::Port;
+    let scancode: u8 = unsafe { Port::new(0x60).read() };
+    crate::drivers::keyboard::handle_scancode(scancode);
+    crate::interrupts::apic::APIC.lock().send_eoi();
+}
+
+/// Vector 0x22: Network RX (virtio-net) — placeholder for Phase 09.
+pub extern "x86-interrupt" fn network_rx(_frame: InterruptStackFrame) {
+    crate::interrupts::apic::APIC.lock().send_eoi();
+}
+
+/// Vector 0xFF: APIC Spurious interrupt.
+/// Per Intel spec, do NOT send EOI for spurious interrupts.
+pub extern "x86-interrupt" fn spurious(_frame: InterruptStackFrame) {
+    // Intentionally empty — no EOI
+}

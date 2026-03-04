@@ -5,9 +5,11 @@
 extern crate alloc;
 
 mod display;
+mod drivers;
 mod gdt;
 mod interrupts;
 mod memory;
+mod timer;
 
 use limine::request::{FramebufferRequest, HhdmRequest, MemoryMapRequest};
 

@@ -22,7 +22,12 @@ pub fn init_idt() {
                 .set_stack_index(crate::gdt::DOUBLE_FAULT_IST_INDEX);
         }
 
-        // Hardware IRQ vectors (0x20-0x2F) — set in Phase 03
+        // Hardware IRQ vectors (APIC-routed)
+        idt[0x20].set_handler_fn(handlers::timer);      // APIC timer (100 Hz)
+        idt[0x21].set_handler_fn(handlers::keyboard);   // PS/2 keyboard
+        idt[0x22].set_handler_fn(handlers::network_rx); // virtio-net (Phase 09)
+        idt[0xFF].set_handler_fn(handlers::spurious);   // APIC spurious
+
         idt
     });
     idt.load();
