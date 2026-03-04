@@ -163,13 +163,30 @@ pub extern "C" fn _start() -> ! {
     });
     println!("[OK] WASM runtime initialized");
 
-    // 11. SART — register test agents + WASM modules
+    // 11. Glass Box — set up the log bridge so the Glass Box agent can print
+    //     the state overlay to the framebuffer. Same pattern as WASM runtime.
+    glass_box::set_log_fn(|msg| {
+        println!("{}", msg);
+    });
+    println!("[OK] Glass Box initialized");
+
+    // 12. SART — register system agents + WASM modules
     {
         use sart::Sart;
         static SART: spin::Mutex<Sart> = spin::Mutex::new(Sart::new());
 
         let tick = crate::timer::ticks();
         let mut sart = SART.lock();
+
+        // Register the Glass Box agent first — it subscribes to glass-box
+        // intents so it can receive state updates from all other agents.
+        sart.register(
+            alloc::boxed::Box::new(glass_box::GlassBoxAgent::new(true)),
+            &["glass-box.update", "glass-box.module.stopped"],
+            tick,
+        );
+        println!("[OK] Glass Box agent registered");
+
         sart.register(
             alloc::boxed::Box::new(agents::heartbeat::HeartbeatAgent::new()),
             &[],
@@ -203,15 +220,40 @@ pub extern "C" fn _start() -> ! {
         );
         drop(sart);
 
-        // 12. Enable interrupts — APIC and IDT must be ready before this
+        // Glass Box self-test: send a test update through the Intent Bus.
+        // This verifies the full pipeline: intent creation → bus routing →
+        // GlassBoxAgent receives → GlassBoxStore updated → display renders.
+        {
+            use intent_bus::Intent;
+            let conn = intent_bus::INTENT_BUS.connect("kernel-test", &[]);
+            let intent = Intent::request(
+                "glass-box.update",
+                "kernel-test",
+                &glass_box::GlassBoxUpdate {
+                    module: alloc::string::String::from("kernel"),
+                    key: alloc::string::String::from("status"),
+                    value: alloc::string::String::from("booting"),
+                },
+            );
+            conn.send(intent);
+            println!("[OK] Glass Box self-test: update sent");
+        }
+
+        // 13. Enable interrupts — APIC and IDT must be ready before this
         x86_64::instructions::interrupts::enable();
         println!("[OK] Interrupts enabled — SART running");
 
         // Kernel idle loop — SART is driven by the main loop, woken by HLT
         // on each timer interrupt (100 Hz). This avoids running agents inside
         // the ISR context where heap allocation and mutex locking are unsafe.
+        //
+        // We also update the Intent Bus time each tick so that Glass Box
+        // timestamps are accurate (intent_bus::bus::current_ms() is used by
+        // the Glass Box store and display renderer).
         loop {
-            SART.lock().tick(crate::timer::ticks());
+            let tick = crate::timer::ticks();
+            intent_bus::bus::set_current_ms(tick * 10); // 10ms per tick
+            SART.lock().tick(tick);
             x86_64::instructions::hlt();
         }
     }
