@@ -214,10 +214,12 @@ version = "0.1.0"
 name = "squirrel-kernel"
 version = "0.1.0"
 dependencies = [
+ "intent-bus",
  "limine",
  "linked_list_allocator",
  "noto-sans-mono-bitmap",
  "pc-keyboard",
+ "serde",
  "spin",
  "uart_16550",
  "volatile 0.5.4",

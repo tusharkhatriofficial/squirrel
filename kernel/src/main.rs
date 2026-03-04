@@ -75,20 +75,47 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
-    // 5. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
+    // 5. Intent Bus — the messaging backbone (static global, no init needed)
+    {
+        use intent_bus::INTENT_BUS;
+        use intent_bus::Intent;
+        use serde::{Serialize, Deserialize};
+
+        println!("[OK] Intent Bus");
+
+        // Self-test: send a test intent and verify it's received
+        #[derive(Serialize, Deserialize, Debug)]
+        struct TestMsg { value: u32 }
+
+        let conn_a = INTENT_BUS.connect("test-sender", &[]);
+        let conn_b = INTENT_BUS.connect("test-receiver", &["test.ping"]);
+
+        let intent = Intent::request("test.ping", "test-sender", &TestMsg { value: 42 });
+        conn_a.send(intent);
+
+        if let Some(received) = conn_b.try_recv() {
+            let msg: TestMsg = received.decode().unwrap();
+            assert_eq!(msg.value, 42);
+            println!("[OK] Intent Bus self-test passed (value={})", msg.value);
+        } else {
+            panic!("Intent Bus self-test failed: no message received");
+        }
+    }
+
+    // 6. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
     crate::interrupts::apic::init();
     println!("[OK] APIC + timer (100 Hz)");
 
-    // 6. PS/2 keyboard driver
+    // 7. PS/2 keyboard driver
     crate::drivers::keyboard::init();
     println!("[OK] Keyboard");
 
-    // 7. Scan for virtio-net device (informational — real driver in Phase 09)
+    // 8. Scan for virtio-net device (informational — real driver in Phase 09)
     if crate::drivers::network::virtio_net::VirtioNetDevice::find().is_none() {
         println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
     }
 
-    // 8. Enable interrupts — APIC and IDT must be ready before this
+    // 9. Enable interrupts — APIC and IDT must be ready before this
     x86_64::instructions::interrupts::enable();
     println!("[OK] Interrupts enabled");
 
