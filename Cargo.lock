@@ -141,6 +141,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
+name = "sart"
+version = "0.1.0"
+dependencies = [
+ "intent-bus",
+ "spin",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,10 +240,6 @@ version = "0.1.0"
 
 [[package]]
 name = "squirrel-primary-agent"
-version = "0.1.0"
-
-[[package]]
-name = "squirrel-sart"
 version = "0.1.0"
 
 [[package]]
