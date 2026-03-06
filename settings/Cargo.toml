@@ -10,8 +10,10 @@ path = "src/lib.rs"
 # Kernel-safe spinlocks for the in-memory settings cache
 spin = "0.9"
 
-# AES-256-GCM encryption for API keys (hardware AES-NI on x86)
-aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
+# blake3 hashing — used for key derivation in API key encryption.
+# Already in the project (SVFS uses it). We use it here to derive
+# a machine-specific encryption key from CPUID + machine seed.
+blake3 = { version = "1.6", default-features = false }
 
 # Hex encoding/decoding for SVFS hash references in settings TOML
 hex = { version = "0.4", default-features = false, features = ["alloc"] }

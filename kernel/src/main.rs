@@ -26,12 +26,14 @@ static MEMORY_MAP_REQ: MemoryMapRequest = MemoryMapRequest::new();
 #[used]
 static BASE_REVISION: limine::BaseRevision = limine::BaseRevision::new();
 
-// Embed the compiled hello-module WASM binary at compile time.
-// This is 625 bytes of WebAssembly bytecode that gets included
-// directly in the kernel binary. In Phase 07, modules will be
-// loaded from SVFS instead.
+// Embed compiled WASM module binaries at compile time.
+// These get included directly in the kernel binary. In production,
+// modules would be loaded from SVFS instead.
 static HELLO_MODULE_WASM: &[u8] = include_bytes!(
     "../../modules/hello-module/target/wasm32-unknown-unknown/release/hello_module.wasm"
+);
+static SETTINGS_MODULE_WASM: &[u8] = include_bytes!(
+    "../../modules/settings-module/target/wasm32-unknown-unknown/release/squirrel_settings_module.wasm"
 );
 
 #[no_mangle]
@@ -144,7 +146,17 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
-    // 7. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
+    // 7. OS Settings — persistent configuration backed by SVFS.
+    // Must be initialized after SVFS (settings are stored there) and before
+    // the inference engine (which reads settings on every request).
+    // On first boot: writes defaults to SVFS.
+    // On subsequent boots: loads saved settings from SVFS.
+    settings::set_log_fn(|msg| {
+        println!("{}", msg);
+    });
+    settings::init();
+
+    // 8. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
     crate::interrupts::apic::init();
     println!("[OK] APIC + timer (100 Hz)");
 
@@ -235,13 +247,30 @@ pub extern "C" fn _start() -> ! {
         match wasm_runtime::WasmModule::load("hello-module", HELLO_MODULE_WASM, &[]) {
             Ok(module) => match module.instantiate() {
                 Ok(agent) => {
-                    // hello-module has no subscriptions — it only sends intents.
                     sart.register(alloc::boxed::Box::new(agent), &[], tick);
                     println!("[OK] WASM: hello-module loaded ({} bytes)", HELLO_MODULE_WASM.len());
                 }
                 Err(e) => println!("[WARN] hello-module instantiation failed: {:?}", e),
             },
             Err(e) => println!("[WARN] hello-module load failed: {:?}", e),
+        }
+
+        // Load the settings-module WASM binary — the settings UI.
+        // Subscribes to "settings.open" (triggered when user types "settings")
+        // and "input.char" (keyboard input while settings screen is visible).
+        match wasm_runtime::WasmModule::load("settings-module", SETTINGS_MODULE_WASM, &[]) {
+            Ok(module) => match module.instantiate() {
+                Ok(agent) => {
+                    sart.register(
+                        alloc::boxed::Box::new(agent),
+                        &["settings.open", "input.char"],
+                        tick,
+                    );
+                    println!("[OK] WASM: settings-module loaded ({} bytes)", SETTINGS_MODULE_WASM.len());
+                }
+                Err(e) => println!("[WARN] settings-module instantiation failed: {:?}", e),
+            },
+            Err(e) => println!("[WARN] settings-module load failed: {:?}", e),
         }
 
         println!(

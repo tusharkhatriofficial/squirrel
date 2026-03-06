@@ -21,7 +21,7 @@
 //! Writing a setting updates the cache AND persists to SVFS immediately,
 //! so changes survive reboots.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use spin::RwLock;
 

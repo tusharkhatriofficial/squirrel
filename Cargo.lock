@@ -537,6 +537,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -935,10 +941,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "squirrel-display-module"
-version = "0.1.0"
-
-[[package]]
 name = "squirrel-glass-box"
 version = "0.1.0"
 dependencies = [
@@ -960,11 +962,8 @@ dependencies = [
  "spin",
  "squirrel-glass-box",
  "squirrel-network",
+ "squirrel-settings",
 ]
-
-[[package]]
-name = "squirrel-input-module"
-version = "0.1.0"
 
 [[package]]
 name = "squirrel-kernel"
@@ -981,6 +980,7 @@ dependencies = [
  "squirrel-glass-box",
  "squirrel-inference-engine",
  "squirrel-network",
+ "squirrel-settings",
  "svfs",
  "uart_16550",
  "volatile 0.5.4",
@@ -1012,14 +1012,12 @@ version = "0.1.0"
 [[package]]
 name = "squirrel-settings"
 version = "0.1.0"
-
-[[package]]
-name = "squirrel-settings-module"
-version = "0.1.0"
-
-[[package]]
-name = "squirrel-storage-module"
-version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "spin",
+ "svfs",
+]
 
 [[package]]
 name = "stable_deref_trait"
