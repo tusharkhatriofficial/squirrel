@@ -26,8 +26,12 @@ run: build disk
 		-drive file=$(DISK_IMG),format=raw,if=virtio \
 		-netdev user,id=net0 -device virtio-net-pci,netdev=net0
 
-debug: build
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -drive file=$(DISK_IMG),format=raw,if=virtio -s -S &
+debug: build disk
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom $(ISO) \
+		-drive file=$(DISK_IMG),format=raw,if=virtio \
+		-netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+		-s -S &
 	gdb $(KERNEL) \
 		-ex "set arch i386:x86-64" \
 		-ex "target remote :1234" \
