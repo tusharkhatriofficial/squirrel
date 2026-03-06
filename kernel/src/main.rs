@@ -173,11 +173,12 @@ pub extern "C" fn _start() -> ! {
     crate::drivers::keyboard::init();
     println!("[OK] Keyboard");
 
-    // 9. Network stack — virtio-net driver, TCP/IP, TLS, HTTP client
+    // 9. Network stack — auto-detects NIC (virtio-net, Intel e1000, Realtek RTL8139)
     network::set_log_fn(|msg| {
         println!("{}", msg);
     });
-    match network::init(|msg| { println!("{}", msg); }) {
+    let hhdm_off = crate::memory::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed);
+    match network::init(|msg| { println!("{}", msg); }, hhdm_off) {
         Ok(()) => println!("[OK] Network stack ready"),
         Err(e) => println!("[WARN] Network: {} — continuing without network", e),
     }

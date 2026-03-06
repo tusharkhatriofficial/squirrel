@@ -11,7 +11,7 @@ QEMU_FLAGS  := -m 4G -serial stdio -vga std
 DISK_IMG    := $(ROOT)/target/squirrel-disk.img
 DISK_SIZE   := 2G
 
-.PHONY: build wasm run debug iso disk clean
+.PHONY: build wasm run run-e1000 run-rtl8139 debug iso disk clean
 
 # Build WASM capability modules first (kernel embeds them via include_bytes!)
 wasm:
@@ -34,6 +34,30 @@ run: build disk
 		-cdrom "$(ISO)" \
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
 		-netdev user,id=net0 -device virtio-net-pci,netdev=net0
+
+# Test with emulated Intel e1000 (same driver works on real Intel NICs)
+run-e1000: build disk
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom "$(ISO)" \
+		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
+		-netdev user,id=net0 -device e1000,netdev=net0 \
+		-enable-kvm 2>/dev/null || \
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom "$(ISO)" \
+		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
+		-netdev user,id=net0 -device e1000,netdev=net0
+
+# Test with emulated Realtek RTL8139
+run-rtl8139: build disk
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom "$(ISO)" \
+		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
+		-netdev user,id=net0 -device rtl8139,netdev=net0 \
+		-enable-kvm 2>/dev/null || \
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom "$(ISO)" \
+		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
+		-netdev user,id=net0 -device rtl8139,netdev=net0
 
 debug: build disk
 	$(QEMU) $(QEMU_FLAGS) \

@@ -15,6 +15,8 @@ use alloc::{vec, vec::Vec};
 use core::ptr;
 use x86_64::instructions::port::Port;
 
+use crate::nic::NicDriver;
+
 // --- Virtio legacy interface register offsets (I/O space) ---
 const REG_DEVICE_FEATURES: u16 = 0x00; // R:  device feature bits
 const REG_DRIVER_FEATURES: u16 = 0x04; // W:  driver-accepted features
@@ -206,29 +208,7 @@ impl Virtqueue {
     }
 }
 
-/// Scan PCI bus 0 for a virtio-net device (vendor 0x1AF4, device 0x1000 or 0x1041).
-/// Returns the I/O base address if found.
-pub fn find_virtio_net() -> Option<(u16, u8)> {
-    for dev in 0..32u8 {
-        let vendor = pci_read_u16(0, dev, 0, 0x00);
-        if vendor == 0xFFFF {
-            continue;
-        }
-        let device = pci_read_u16(0, dev, 0, 0x02);
-        if vendor == 0x1AF4 && (device == 0x1000 || device == 0x1041) {
-            let bar0 = pci_read_u32(0, dev, 0, 0x10);
-            if bar0 & 1 == 1 {
-                // I/O space BAR — mask off the type bit
-                let io_base = (bar0 & !3) as u16;
-                // Enable bus mastering (bit 2 of PCI command register)
-                let cmd = pci_read_u16(0, dev, 0, 0x04);
-                pci_write_u16(0, dev, 0, 0x04, cmd | 0x04);
-                return Some((io_base, dev));
-            }
-        }
-    }
-    None
-}
+// PCI scanning moved to pci.rs — use pci::find_nic() instead.
 
 /// The virtio-net device driver.
 ///
@@ -349,7 +329,7 @@ impl VirtioNet {
     /// Prepends the 12-byte virtio-net header (all zeros = no offloading),
     /// copies the frame into a TX buffer, submits it to the TX virtqueue,
     /// and notifies the device.
-    pub fn send_frame(&mut self, frame: &[u8]) {
+    pub fn send_raw_frame(&mut self, frame: &[u8]) {
         // Reclaim any completed TX descriptors first
         while let Some((desc_idx, _)) = self.tx_queue.pop_used() {
             self.tx_queue.free_desc(desc_idx);
@@ -388,7 +368,7 @@ impl VirtioNet {
     /// Checks the RX used ring for completed buffers. If a frame is available,
     /// strips the virtio-net header, copies the Ethernet frame into `buf`,
     /// and returns the number of bytes. Re-submits the buffer for reuse.
-    pub fn recv_frame(&mut self, buf: &mut [u8]) -> Option<usize> {
+    pub fn recv_raw_frame(&mut self, buf: &mut [u8]) -> Option<usize> {
         let (desc_idx, total_len) = self.rx_queue.pop_used()?;
 
         // The device wrote total_len bytes including the virtio-net header
@@ -422,47 +402,18 @@ impl VirtioNet {
     }
 }
 
-// --- PCI configuration space helpers ---
+impl NicDriver for VirtioNet {
+    fn send_frame(&mut self, frame: &[u8]) {
+        VirtioNet::send_raw_frame(self, frame);
+    }
 
-fn pci_read_u16(bus: u8, dev: u8, func: u8, off: u8) -> u16 {
-    let addr: u32 = 0x8000_0000
-        | ((bus as u32) << 16)
-        | ((dev as u32) << 11)
-        | ((func as u32) << 8)
-        | ((off as u32) & 0xFC);
-    unsafe {
-        Port::<u32>::new(0xCF8).write(addr);
-        let data = Port::<u32>::new(0xCFC).read();
-        if off & 2 == 0 { data as u16 } else { (data >> 16) as u16 }
+    fn recv_frame(&mut self, buf: &mut [u8]) -> Option<usize> {
+        VirtioNet::recv_raw_frame(self, buf)
+    }
+
+    fn mac_address(&self) -> [u8; 6] {
+        self.mac
     }
 }
 
-fn pci_read_u32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
-    let addr: u32 = 0x8000_0000
-        | ((bus as u32) << 16)
-        | ((dev as u32) << 11)
-        | ((func as u32) << 8)
-        | ((off as u32) & 0xFC);
-    unsafe {
-        Port::<u32>::new(0xCF8).write(addr);
-        Port::<u32>::new(0xCFC).read()
-    }
-}
-
-fn pci_write_u16(bus: u8, dev: u8, func: u8, off: u8, val: u16) {
-    let addr: u32 = 0x8000_0000
-        | ((bus as u32) << 16)
-        | ((dev as u32) << 11)
-        | ((func as u32) << 8)
-        | ((off as u32) & 0xFC);
-    unsafe {
-        Port::<u32>::new(0xCF8).write(addr);
-        let cur = Port::<u32>::new(0xCFC).read();
-        let new = if off & 2 == 0 {
-            (cur & 0xFFFF_0000) | (val as u32)
-        } else {
-            (cur & 0x0000_FFFF) | ((val as u32) << 16)
-        };
-        Port::<u32>::new(0xCFC).write(new);
-    }
-}
+// PCI helpers are in pci.rs — use crate::pci::* for PCI access.
