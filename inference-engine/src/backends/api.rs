@@ -250,8 +250,7 @@ impl InferenceBackend for ApiInferenceBackend {
             .collect();
 
         // Get the global network stack and make the HTTP POST request
-        let net_stack = network::NETWORK_STACK
-            .get()
+        let net_stack = network::get_stack()
             .ok_or(InferenceError::NetworkUnavailable)?;
         let mut stack = net_stack.lock();
 

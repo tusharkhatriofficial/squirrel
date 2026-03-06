@@ -30,8 +30,6 @@
 //! NoLocalModel, so the InferenceRouter knows to fall through to the
 //! cloud API backend.
 
-use alloc::string::String;
-
 use crate::backend::{InferenceBackend, InferenceError, InferenceRequest, InferenceResponse};
 
 /// Stub local inference backend.

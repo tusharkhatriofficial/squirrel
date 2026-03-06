@@ -94,6 +94,15 @@ pub fn is_ready() -> bool {
     NET_READY.is_completed()
 }
 
+/// Get a reference to the global network stack.
+///
+/// Returns None if init() hasn't been called or failed. The returned
+/// Mutex must be locked before use. Used by the inference engine to
+/// make HTTP requests to cloud AI APIs.
+pub fn get_stack() -> Option<&'static Mutex<NetworkStack>> {
+    NETWORK_STACK.get()
+}
+
 // Re-export the log crate's macros so our modules can use println!-style
 // logging without depending on the kernel's display module directly.
 // The kernel sets up a log_fn callback that routes to its framebuffer.

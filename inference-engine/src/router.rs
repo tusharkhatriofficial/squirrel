@@ -17,12 +17,12 @@
 //! Priority: Reasoning (highest). When the AI is thinking, inference
 //! should be processed before anything else.
 
-use alloc::{format, string::String};
+use alloc::format;
 use intent_bus::Intent;
 use sart::{Agent, AgentContext, AgentPoll, CognitivePriority};
 
 use crate::backend::{InferenceError, InferenceRequest, InferenceResponse};
-use crate::backends::api::{ApiInferenceBackend, ApiProvider};
+use crate::backends::api::ApiInferenceBackend;
 use crate::backends::local::LocalInferenceBackend;
 
 /// The Inference Router — dispatches inference requests to the right backend.
