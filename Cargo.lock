@@ -455,6 +455,15 @@ dependencies = [
 [[package]]
 name = "squirrel-inference-engine"
 version = "0.1.0"
+dependencies = [
+ "intent-bus",
+ "postcard",
+ "sart",
+ "serde",
+ "spin",
+ "squirrel-glass-box",
+ "squirrel-network",
+]
 
 [[package]]
 name = "squirrel-input-module"
@@ -473,6 +482,7 @@ dependencies = [
  "serde",
  "spin",
  "squirrel-glass-box",
+ "squirrel-inference-engine",
  "squirrel-network",
  "svfs",
  "uart_16550",
