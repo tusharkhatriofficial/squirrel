@@ -24,6 +24,7 @@ glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
 network = { path = "../network", package = "squirrel-network" }
 inference-engine = { path = "../inference-engine", package = "squirrel-inference-engine" }
 settings = { path = "../settings", package = "squirrel-settings" }
+primary-agent = { path = "../primary-agent", package = "squirrel-primary-agent" }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [features]

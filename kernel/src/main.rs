@@ -35,6 +35,15 @@ static HELLO_MODULE_WASM: &[u8] = include_bytes!(
 static SETTINGS_MODULE_WASM: &[u8] = include_bytes!(
     "../../modules/settings-module/target/wasm32-unknown-unknown/release/squirrel_settings_module.wasm"
 );
+static DISPLAY_MODULE_WASM: &[u8] = include_bytes!(
+    "../../modules/display-module/target/wasm32-unknown-unknown/release/squirrel_display_module.wasm"
+);
+static INPUT_MODULE_WASM: &[u8] = include_bytes!(
+    "../../modules/input-module/target/wasm32-unknown-unknown/release/squirrel_input_module.wasm"
+);
+static STORAGE_MODULE_WASM: &[u8] = include_bytes!(
+    "../../modules/storage-module/target/wasm32-unknown-unknown/release/squirrel_storage_module.wasm"
+);
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -272,6 +281,84 @@ pub extern "C" fn _start() -> ! {
             },
             Err(e) => println!("[WARN] settings-module load failed: {:?}", e),
         }
+
+        // =====================================================================
+        // PHASE 12: PRIMARY AI AGENT + CORE MODULES
+        // =====================================================================
+
+        // Keyboard Bridge — pumps characters from the keyboard ISR buffer
+        // into "input.char" intents on the Intent Bus. This is the safe
+        // bridge between interrupt context and the cooperative agent world.
+        sart.register(
+            alloc::boxed::Box::new(agents::keyboard_bridge::KeyboardBridgeAgent::new()),
+            &[],
+            tick,
+        );
+        println!("[OK] Keyboard bridge agent registered");
+
+        // Display module — the ONLY path to the framebuffer.
+        // All text output flows through this WASM module as "display.print" intents.
+        match wasm_runtime::WasmModule::load("display-module", DISPLAY_MODULE_WASM, &[]) {
+            Ok(module) => match module.instantiate() {
+                Ok(agent) => {
+                    sart.register(
+                        alloc::boxed::Box::new(agent),
+                        &["display.print", "display.clear", "display.prompt"],
+                        tick,
+                    );
+                    println!("[OK] WASM: display-module loaded ({} bytes)", DISPLAY_MODULE_WASM.len());
+                }
+                Err(e) => println!("[WARN] display-module instantiation failed: {:?}", e),
+            },
+            Err(e) => println!("[WARN] display-module load failed: {:?}", e),
+        }
+
+        // Input module — keyboard character assembly and line editing.
+        // Receives "input.char" from the keyboard bridge, emits "input.line"
+        // when the user presses Enter.
+        match wasm_runtime::WasmModule::load("input-module", INPUT_MODULE_WASM, &[]) {
+            Ok(module) => match module.instantiate() {
+                Ok(agent) => {
+                    sart.register(
+                        alloc::boxed::Box::new(agent),
+                        &["input.char", "input.request_secret", "input.request_line"],
+                        tick,
+                    );
+                    println!("[OK] WASM: input-module loaded ({} bytes)", INPUT_MODULE_WASM.len());
+                }
+                Err(e) => println!("[WARN] input-module instantiation failed: {:?}", e),
+            },
+            Err(e) => println!("[WARN] input-module load failed: {:?}", e),
+        }
+
+        // Storage module — SVFS proxy for WASM modules.
+        // Receives "storage.store"/"storage.retrieve", forwards to kernel SVFS.
+        match wasm_runtime::WasmModule::load("storage-module", STORAGE_MODULE_WASM, &[]) {
+            Ok(module) => match module.instantiate() {
+                Ok(agent) => {
+                    sart.register(
+                        alloc::boxed::Box::new(agent),
+                        &["storage.store", "storage.retrieve",
+                          "kernel.storage.store.response", "kernel.storage.retrieve.response"],
+                        tick,
+                    );
+                    println!("[OK] WASM: storage-module loaded ({} bytes)", STORAGE_MODULE_WASM.len());
+                }
+                Err(e) => println!("[WARN] storage-module instantiation failed: {:?}", e),
+            },
+            Err(e) => println!("[WARN] storage-module load failed: {:?}", e),
+        }
+
+        // Primary AI Agent — Squirrel's brain. Highest priority.
+        // Receives user input, pattern-matches or routes to inference,
+        // displays responses. This is the top-level intelligence.
+        sart.register(
+            alloc::boxed::Box::new(primary_agent::PrimaryAiAgent::new()),
+            &["input.line", "inference.generate.response", "system.status",
+              "settings.closed", "display.clear.done"],
+            tick,
+        );
+        println!("[OK] Primary AI Agent registered");
 
         println!(
             "[OK] SART: {} agents registered {:?}",
