@@ -7,3 +7,45 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+# TCP/IP stack — runs in no_std with alloc, gives us DHCP + DNS + TCP sockets
+smoltcp = { version = "0.11", default-features = false, features = [
+    "alloc",
+    "proto-ipv4",
+    "proto-dhcpv4",
+    "proto-dns",
+    "socket-tcp",
+    "socket-dhcpv4",
+    "socket-dns",
+    "log",
+] }
+
+# TLS 1.2/1.3 — no_std with alloc, used for HTTPS to AI API endpoints
+rustls = { version = "0.23", default-features = false, features = [
+    "alloc",
+    "logging",
+    "tls12",
+    "ring",
+] }
+
+# Mozilla's root CA certificates — needed to verify HTTPS servers
+webpki-roots = "0.26"
+
+# Kernel-safe spinlocks (no_std)
+spin = "0.9"
+
+# x86_64 port I/O for PCI and virtio register access
+x86_64 = "0.15"
+
+# Serialization for Intent Bus payloads
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# Squirrel subsystems
+intent-bus = { path = "../intent-bus" }
+sart = { path = "../sart" }
+
+# Logging facade (smoltcp uses it; we route to our println!)
+log = { version = "0.4", default-features = false }
+
+[features]
+default = []
