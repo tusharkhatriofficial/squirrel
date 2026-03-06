@@ -174,7 +174,13 @@ pub extern "C" fn _start() -> ! {
     });
     println!("[OK] Glass Box initialized");
 
-    // 12. SART — register system agents + WASM modules
+    // 12. Inference Engine — AI text generation (cloud API for MVP)
+    inference_engine::set_log_fn(|msg| {
+        println!("{}", msg);
+    });
+    println!("[OK] Inference engine initialized");
+
+    // 13. SART — register system agents + WASM modules
     {
         use sart::Sart;
         static SART: spin::Mutex<Sart> = spin::Mutex::new(Sart::new());
@@ -212,6 +218,16 @@ pub extern "C" fn _start() -> ! {
             );
             println!("[OK] Network agent registered");
         }
+
+        // Register InferenceRouter — handles "inference.generate" intents.
+        // This is the AI's thinking engine. It routes inference requests to
+        // the right backend (local stub or cloud API) based on current settings.
+        sart.register(
+            alloc::boxed::Box::new(inference_engine::InferenceRouter::new()),
+            &["inference.generate"],
+            tick,
+        );
+        println!("[OK] Inference engine agent registered");
 
         // Load the hello-module WASM binary and register it as a SART agent.
         // This is where the Capability Fabric comes alive: a WASM module
@@ -254,7 +270,7 @@ pub extern "C" fn _start() -> ! {
             println!("[OK] Glass Box self-test: update sent");
         }
 
-        // 13. Enable interrupts — APIC and IDT must be ready before this
+        // 14. Enable interrupts — APIC and IDT must be ready before this
         x86_64::instructions::interrupts::enable();
         println!("[OK] Interrupts enabled — SART running");
 
@@ -274,12 +290,11 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-/// Export kernel_milliseconds for the network crate.
+/// Export kernel_milliseconds for the network and inference-engine crates.
 ///
-/// The network stack (smoltcp, TLS, HTTP) needs to know the current time
-/// for TCP retransmissions, TLS handshake timeouts, DHCP lease timers, etc.
-/// They call `extern "Rust" { fn kernel_milliseconds() -> u64; }` which
-/// links to this function.
+/// The network stack (smoltcp, HTTP) and inference engine (latency tracking)
+/// need to know the current time. They call
+/// `extern "Rust" { fn kernel_milliseconds() -> u64; }` which links here.
 #[no_mangle]
 pub extern "Rust" fn kernel_milliseconds() -> u64 {
     crate::timer::milliseconds()

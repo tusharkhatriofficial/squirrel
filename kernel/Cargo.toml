@@ -22,6 +22,7 @@ wasm-runtime = { path = "../wasm-runtime" }
 svfs = { path = "../svfs" }
 glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
 network = { path = "../network", package = "squirrel-network" }
+inference-engine = { path = "../inference-engine", package = "squirrel-inference-engine" }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [features]
