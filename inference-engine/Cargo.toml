@@ -7,3 +7,18 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+# Kernel-safe spinlocks
+spin = "0.9"
+
+# Serialization for Intent Bus payloads and JSON building
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# Squirrel subsystems
+intent-bus = { path = "../intent-bus" }
+sart = { path = "../sart" }
+network = { path = "../network", package = "squirrel-network" }
+glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
+
+[features]
+default = []
