@@ -980,6 +980,7 @@ dependencies = [
  "squirrel-glass-box",
  "squirrel-inference-engine",
  "squirrel-network",
+ "squirrel-primary-agent",
  "squirrel-settings",
  "svfs",
  "uart_16550",
@@ -1008,6 +1009,16 @@ dependencies = [
 [[package]]
 name = "squirrel-primary-agent"
 version = "0.1.0"
+dependencies = [
+ "intent-bus",
+ "postcard",
+ "sart",
+ "serde",
+ "spin",
+ "squirrel-glass-box",
+ "squirrel-inference-engine",
+ "squirrel-settings",
+]
 
 [[package]]
 name = "squirrel-settings"
