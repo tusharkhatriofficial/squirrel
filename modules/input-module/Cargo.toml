@@ -7,4 +7,13 @@ edition = "2021"
 crate-type = ["cdylib"]
 path = "src/lib.rs"
 
+# Independent WASM crate — not part of the kernel workspace.
+# Compiles to wasm32-unknown-unknown, embedded in kernel via include_bytes!.
+# Build with: cargo build --release --target wasm32-unknown-unknown
+[workspace]
+
 [dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
