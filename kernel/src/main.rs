@@ -152,9 +152,13 @@ pub extern "C" fn _start() -> ! {
     crate::drivers::keyboard::init();
     println!("[OK] Keyboard");
 
-    // 9. Scan for virtio-net device (informational — real driver in Phase 09)
-    if crate::drivers::network::virtio_net::VirtioNetDevice::find().is_none() {
-        println!("[HW] virtio-net: not found (normal without QEMU -device flag)");
+    // 9. Network stack — virtio-net driver, TCP/IP, TLS, HTTP client
+    network::set_log_fn(|msg| {
+        println!("{}", msg);
+    });
+    match network::init(|msg| { println!("{}", msg); }) {
+        Ok(()) => println!("[OK] Network stack ready"),
+        Err(e) => println!("[WARN] Network: {} — continuing without network", e),
     }
 
     // 10. WASM runtime — set up the log bridge so WASM modules can print
@@ -197,6 +201,17 @@ pub extern "C" fn _start() -> ! {
             &["system.heartbeat"],
             tick,
         );
+
+        // Register NetworkAgent — handles "network.http.post" intents.
+        // Only register if the network stack initialized successfully.
+        if network::is_ready() {
+            sart.register(
+                alloc::boxed::Box::new(network::NetworkAgent::new()),
+                &["network.http.post"],
+                tick,
+            );
+            println!("[OK] Network agent registered");
+        }
 
         // Load the hello-module WASM binary and register it as a SART agent.
         // This is where the Capability Fabric comes alive: a WASM module
@@ -257,6 +272,17 @@ pub extern "C" fn _start() -> ! {
             x86_64::instructions::hlt();
         }
     }
+}
+
+/// Export kernel_milliseconds for the network crate.
+///
+/// The network stack (smoltcp, TLS, HTTP) needs to know the current time
+/// for TCP retransmissions, TLS handshake timeouts, DHCP lease timers, etc.
+/// They call `extern "Rust" { fn kernel_milliseconds() -> u64; }` which
+/// links to this function.
+#[no_mangle]
+pub extern "Rust" fn kernel_milliseconds() -> u64 {
+    crate::timer::milliseconds()
 }
 
 #[panic_handler]
