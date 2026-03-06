@@ -7,3 +7,14 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+# Kernel-safe spinlocks for the in-memory settings cache
+spin = "0.9"
+
+# AES-256-GCM encryption for API keys (hardware AES-NI on x86)
+aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
+
+# Hex encoding/decoding for SVFS hash references in settings TOML
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+
+# SVFS — the storage backend for persisting settings across reboots
+svfs = { path = "../svfs" }
