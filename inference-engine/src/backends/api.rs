@@ -4,10 +4,9 @@
 //! crate's HttpClient. It builds provider-specific URLs, headers, and JSON
 //! request bodies, then parses provider-specific response formats.
 //!
-//! For the MVP, requests go over plain HTTP (not HTTPS) because TLS requires
-//! the ring crypto library which can't compile on bare metal x86_64 yet.
-//! This works because QEMU's user-mode networking can proxy to a
-//! TLS-terminating endpoint on the host machine.
+//! Requests go over HTTPS (TLS 1.3) using embedded-tls with RustCrypto.
+//! Certificate verification is skipped for the MVP (UnsecureProvider) —
+//! traffic is still encrypted, just without server identity verification.
 //!
 //! Each provider has a different API format:
 //!   - OpenAI:    POST /v1/chat/completions with Bearer token
@@ -66,13 +65,13 @@ impl ApiInferenceBackend {
     fn build_url(&self) -> String {
         match self.provider {
             ApiProvider::OpenAi => {
-                "http://api.openai.com/v1/chat/completions".into()
+                "https://api.openai.com/v1/chat/completions".into()
             }
             ApiProvider::Anthropic => {
-                "http://api.anthropic.com/v1/messages".into()
+                "https://api.anthropic.com/v1/messages".into()
             }
             ApiProvider::Gemini => format!(
-                "http://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
                 self.model_id, self.api_key
             ),
             ApiProvider::Custom => self.base_url.clone(),

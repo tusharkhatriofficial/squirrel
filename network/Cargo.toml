@@ -19,6 +19,14 @@ smoltcp = { version = "0.11", default-features = false, features = [
     "log",
 ] }
 
+# TLS 1.3 — pure Rust, no_std, no C dependencies (uses RustCrypto internally)
+# This replaces the ring+rustls approach which couldn't compile on bare metal.
+embedded-tls = { version = "0.18", default-features = false }
+embedded-io = "0.7"
+
+# Cryptographic RNG — we provide a custom backend using x86_64 RDRAND instruction
+rand_core = { version = "0.6", default-features = false }
+
 # Kernel-safe spinlocks (no_std)
 spin = "0.9"
 
@@ -38,9 +46,3 @@ log = { version = "0.4", default-features = false }
 
 [features]
 default = []
-
-# TLS support requires ring, which needs a C cross-compilation toolchain
-# for x86_64-unknown-none. Enable this in Stage 2 when we have a proper
-# freestanding C library. For now, HTTP (not HTTPS) is sufficient for
-# local inference and QEMU-proxied API calls.
-# tls = ["dep:rustls", "dep:webpki-roots"]

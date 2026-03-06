@@ -18,15 +18,16 @@
 //!   │  VirtioNet                          │  Virtqueue-based Ethernet
 //!   └─────────────────────────────────────┘
 //!
-//! TLS is deferred to Stage 2 (ring crypto needs C cross-compilation).
+//! TLS 1.3 is provided by embedded-tls (pure Rust, no C dependencies).
 
 #![no_std]
 extern crate alloc;
 
 pub mod agent;
 pub mod http;
+pub mod rng;
 pub mod stack;
-pub mod tls; // stub — TLS deferred to Stage 2
+pub mod tls;
 pub mod virtio_net;
 
 pub use agent::{NetworkAgent, NetworkRequest, NetworkResponse};

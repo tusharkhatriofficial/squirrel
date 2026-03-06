@@ -1,17 +1,13 @@
-//! HTTP/1.1 client — POST over TCP for AI API calls.
+//! HTTP/1.1 client — POST over TCP (plain) or TLS 1.3 (encrypted).
 //!
 //! This is the highest layer of the network stack. It composes:
-//!   NetworkStack (TCP/IP) + HTTP protocol
+//!   NetworkStack (TCP/IP) + optional TLS 1.3 + HTTP protocol
 //!
-//! Supports both http:// and https:// URLs. For the MVP, https:// URLs
-//! are handled by connecting to port 443 over plain TCP — this works when
-//! QEMU's user-mode networking proxies to a TLS-terminating endpoint on
-//! the host, or when connecting to localhost services.
+//! For http:// URLs: sends over plain TCP.
+//! For https:// URLs: establishes TLS 1.3 via embedded-tls, then sends
+//! the HTTP request over the encrypted channel.
 //!
-//! Primary use case: calling AI inference endpoints (local or proxied).
-//!
-//! TLS encryption will be added in Stage 2 when the ring crypto library
-//! can be cross-compiled to bare-metal x86_64.
+//! Primary use case: calling AI inference endpoints (OpenAI, Anthropic, etc).
 
 use alloc::{format, vec, vec::Vec};
 use smoltcp::socket::tcp;
@@ -35,6 +31,7 @@ impl HttpClient {
     /// Send an HTTP POST request with a JSON body.
     ///
     /// Supports both "http://" and "https://" URLs.
+    /// For https://, a TLS 1.3 handshake is performed before sending data.
     /// `headers` are additional HTTP headers (e.g. Authorization, x-api-key).
     /// `body` is the raw JSON payload bytes.
     pub fn post_json(
@@ -44,8 +41,8 @@ impl HttpClient {
         headers: &[(&str, &str)],
         body: &[u8],
     ) -> Result<HttpResponse, &'static str> {
-        // 1. Parse the URL into hostname, port, path
-        let (hostname, port, path) = parse_url(url)?;
+        // 1. Parse the URL into hostname, port, path, and whether it's HTTPS
+        let (hostname, port, path, is_https) = parse_url(url)?;
 
         // 2. DNS resolve: hostname → IPv4 address
         let ip = stack.resolve(hostname)?;
@@ -66,15 +63,27 @@ impl HttpClient {
         }
         request.push_str("Connection: close\r\n\r\n");
 
-        // 5. Send request headers
-        tcp_send_all(stack, tcp_handle, request.as_bytes())?;
+        // Combine headers and body into a single buffer for TLS path
+        let mut full_request = request.into_bytes();
+        full_request.extend_from_slice(body);
 
-        // 6. Send request body
-        tcp_send_all(stack, tcp_handle, body)?;
+        if is_https {
+            // 5a. HTTPS: perform TLS handshake and send/receive encrypted
+            let response_bytes = crate::tls::tls_post(
+                stack,
+                tcp_handle,
+                hostname,
+                &full_request,
+            )?;
+            parse_http_response(&response_bytes)
+        } else {
+            // 5b. HTTP: send over plain TCP
+            tcp_send_all(stack, tcp_handle, &full_request)?;
 
-        // 7. Read the full response
-        let response_bytes = tcp_read_to_end(stack, tcp_handle)?;
-        parse_http_response(&response_bytes)
+            // 6. Read the full response
+            let response_bytes = tcp_read_to_end(stack, tcp_handle)?;
+            parse_http_response(&response_bytes)
+        }
     }
 }
 
@@ -155,19 +164,20 @@ fn tcp_read_to_end(
     Ok(result)
 }
 
-/// Parse a URL into (hostname, port, path).
+/// Parse a URL into (hostname, port, path, is_https).
 ///
 /// Supports both "http://" and "https://" schemes.
-///   "http://localhost:8080/v1/chat"  → ("localhost", 8080, "/v1/chat")
-///   "https://api.openai.com/v1/chat" → ("api.openai.com", 443, "/v1/chat")
-fn parse_url(url: &str) -> Result<(&str, u16, &str), &'static str> {
-    let (url_body, default_port) = if let Some(rest) = url.strip_prefix("https://") {
-        (rest, 443u16)
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        (rest, 80u16)
-    } else {
-        return Err("URL must start with http:// or https://");
-    };
+///   "http://localhost:8080/v1/chat"  → ("localhost", 8080, "/v1/chat", false)
+///   "https://api.openai.com/v1/chat" → ("api.openai.com", 443, "/v1/chat", true)
+fn parse_url(url: &str) -> Result<(&str, u16, &str, bool), &'static str> {
+    let (url_body, default_port, is_https) =
+        if let Some(rest) = url.strip_prefix("https://") {
+            (rest, 443u16, true)
+        } else if let Some(rest) = url.strip_prefix("http://") {
+            (rest, 80u16, false)
+        } else {
+            return Err("URL must start with http:// or https://");
+        };
 
     let (host_and_port, path) = match url_body.find('/') {
         Some(idx) => (&url_body[..idx], &url_body[idx..]),
@@ -184,7 +194,7 @@ fn parse_url(url: &str) -> Result<(&str, u16, &str), &'static str> {
         None => (host_and_port, default_port),
     };
 
-    Ok((hostname, port, path))
+    Ok((hostname, port, path, is_https))
 }
 
 /// Parse a raw HTTP response into status code + body.
