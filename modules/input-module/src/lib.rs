@@ -122,19 +122,23 @@ pub extern "C" fn poll() {
         return;
     }
 
-    // Parse intent: [2-byte type_len][type_bytes][remaining payload]
+    // Parse intent wire format from host_abi:
+    // [type_len: u16 LE][type_bytes][payload_len: u16 LE][payload_bytes]
     let n = n as usize;
-    if n < 2 {
+    if n < 4 {
         return;
     }
 
     let type_len = u16::from_le_bytes([buf[0], buf[1]]) as usize;
-    if 2 + type_len > n {
+    if 2 + type_len + 2 > n {
         return;
     }
 
     let intent_type = &buf[2..2 + type_len];
-    let payload = &buf[2 + type_len..n];
+    let payload_len = u16::from_le_bytes([buf[2 + type_len], buf[2 + type_len + 1]]) as usize;
+    let payload_start = 2 + type_len + 2;
+    let payload_end = (payload_start + payload_len).min(n);
+    let payload = &buf[payload_start..payload_end];
 
     if intent_type == b"input.char" {
         if !payload.is_empty() {

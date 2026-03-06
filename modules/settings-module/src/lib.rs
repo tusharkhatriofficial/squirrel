@@ -103,19 +103,21 @@ pub extern "C" fn poll() {
         return;
     }
 
-    // Parse the intent type from the buffer
-    // Format: [2-byte type_len][type_bytes][remaining payload]
+    // Parse intent wire format from host_abi:
+    // [type_len: u16 LE][type_bytes][payload_len: u16 LE][payload_bytes]
     let n = n as usize;
-    if n < 2 {
+    if n < 4 {
         return;
     }
 
     let type_len = u16::from_le_bytes([buf[0], buf[1]]) as usize;
-    if 2 + type_len > n {
+    if 2 + type_len + 2 > n {
         return;
     }
 
     let intent_type = &buf[2..2 + type_len];
+    let payload_len = u16::from_le_bytes([buf[2 + type_len], buf[2 + type_len + 1]]) as usize;
+    let payload_start = 2 + type_len + 2;
 
     // "settings.open" — show the settings screen
     if intent_type == b"settings.open" {
@@ -131,8 +133,7 @@ pub extern "C" fn poll() {
 
     // "input.char" — handle keyboard input
     if intent_type == b"input.char" {
-        let payload_start = 2 + type_len;
-        if payload_start < n {
+        if payload_len > 0 && payload_start < n {
             handle_input(buf[payload_start]);
         }
     }

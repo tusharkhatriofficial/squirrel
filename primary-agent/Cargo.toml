@@ -7,3 +7,11 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+sart = { path = "../sart" }
+intent-bus = { path = "../intent-bus" }
+inference-engine = { path = "../inference-engine", package = "squirrel-inference-engine" }
+settings = { path = "../settings", package = "squirrel-settings" }
+glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+spin = "0.9"
