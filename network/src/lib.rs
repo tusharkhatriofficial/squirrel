@@ -1,8 +1,8 @@
 //! Squirrel AIOS Network Stack
 //!
 //! Complete network stack for bare-metal x86_64: virtio-net Ethernet driver,
-//! smoltcp TCP/IP, rustls TLS 1.3, and an HTTP/1.1 client. All wrapped in
-//! a SART agent that responds to Intent Bus messages.
+//! smoltcp TCP/IP, and an HTTP/1.1 client. All wrapped in a SART agent
+//! that responds to Intent Bus messages.
 //!
 //! Layer diagram:
 //!
@@ -11,14 +11,14 @@
 //!   ├─────────────────────────────────────┤
 //!   │  HttpClient                         │  HTTP/1.1 POST + JSON
 //!   ├─────────────────────────────────────┤
-//!   │  TlsClient / TlsSession            │  rustls TLS 1.2/1.3
-//!   ├─────────────────────────────────────┤
 //!   │  NetworkStack (smoltcp)             │  DHCP, DNS, TCP sockets
 //!   ├─────────────────────────────────────┤
 //!   │  SmoltcpAdapter                     │  Device trait bridge
 //!   ├─────────────────────────────────────┤
 //!   │  VirtioNet                          │  Virtqueue-based Ethernet
 //!   └─────────────────────────────────────┘
+//!
+//! TLS is deferred to Stage 2 (ring crypto needs C cross-compilation).
 
 #![no_std]
 extern crate alloc;
@@ -26,7 +26,7 @@ extern crate alloc;
 pub mod agent;
 pub mod http;
 pub mod stack;
-pub mod tls;
+pub mod tls; // stub — TLS deferred to Stage 2
 pub mod virtio_net;
 
 pub use agent::{NetworkAgent, NetworkRequest, NetworkResponse};
@@ -93,18 +93,6 @@ pub fn init(log_fn: fn(&str)) -> Result<(), &'static str> {
 pub fn is_ready() -> bool {
     NET_READY.is_completed()
 }
-
-/// Provide the kernel_milliseconds function that the stack and TLS modules
-/// reference via `extern "Rust"`. This function is actually defined in the
-/// kernel crate's timer module — we just declare the linkage here.
-///
-/// The kernel must export this symbol:
-/// ```ignore
-/// #[no_mangle]
-/// pub extern "Rust" fn kernel_milliseconds() -> u64 {
-///     crate::timer::milliseconds()
-/// }
-/// ```
 
 // Re-export the log crate's macros so our modules can use println!-style
 // logging without depending on the kernel's display module directly.

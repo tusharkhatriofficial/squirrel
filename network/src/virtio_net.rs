@@ -244,6 +244,11 @@ pub struct VirtioNet {
     rx_buffers: Vec<Vec<u8>>,
 }
 
+// Safety: VirtioNet is only accessed from one context at a time (the
+// NetworkAgent runs single-threaded within SART's cooperative scheduler).
+// The raw pointers in Virtqueue point to heap memory owned by the struct.
+unsafe impl Send for VirtioNet {}
+
 impl VirtioNet {
     /// Initialize the virtio-net device at the given I/O base address.
     ///
@@ -436,6 +441,7 @@ fn pci_read_u32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
     let addr: u32 = 0x8000_0000
         | ((bus as u32) << 16)
         | ((dev as u32) << 11)
+        | ((func as u32) << 8)
         | ((off as u32) & 0xFC);
     unsafe {
         Port::<u32>::new(0xCF8).write(addr);

@@ -254,9 +254,8 @@ impl NetworkStack {
             {
                 Ok(addrs) => {
                     for addr in addrs.iter() {
-                        if let smoltcp::wire::IpAddress::Ipv4(ip) = addr {
-                            return Ok(*ip);
-                        }
+                        let smoltcp::wire::IpAddress::Ipv4(ip) = addr;
+                        return Ok(*ip);
                     }
                     return Err("No A record found");
                 }

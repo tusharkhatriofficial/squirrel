@@ -19,17 +19,6 @@ smoltcp = { version = "0.11", default-features = false, features = [
     "log",
 ] }
 
-# TLS 1.2/1.3 — no_std with alloc, used for HTTPS to AI API endpoints
-rustls = { version = "0.23", default-features = false, features = [
-    "alloc",
-    "logging",
-    "tls12",
-    "ring",
-] }
-
-# Mozilla's root CA certificates — needed to verify HTTPS servers
-webpki-roots = "0.26"
-
 # Kernel-safe spinlocks (no_std)
 spin = "0.9"
 
@@ -49,3 +38,9 @@ log = { version = "0.4", default-features = false }
 
 [features]
 default = []
+
+# TLS support requires ring, which needs a C cross-compilation toolchain
+# for x86_64-unknown-none. Enable this in Stage 2 when we have a proper
+# freestanding C library. For now, HTTP (not HTTPS) is sufficient for
+# local inference and QEMU-proxied API calls.
+# tls = ["dep:rustls", "dep:webpki-roots"]
