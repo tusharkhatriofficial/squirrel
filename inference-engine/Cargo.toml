@@ -20,5 +20,8 @@ sart = { path = "../sart" }
 network = { path = "../network", package = "squirrel-network" }
 glass-box = { path = "../glass-box", package = "squirrel-glass-box" }
 
+# OS Settings — provides the active backend, model ID, and decrypted API key
+settings = { path = "../settings", package = "squirrel-settings" }
+
 [features]
 default = []

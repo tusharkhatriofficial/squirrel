@@ -15,7 +15,7 @@
 //!   ┌─────────────────────────────────────────┐
 //!   │  InferenceRouter (SART agent)           │  Subscribes to "inference.generate"
 //!   ├─────────────────────────────────────────┤
-//!   │  get_current_backend()                  │  Reads OS Settings (stub for MVP)
+//!   │  get_current_backend()                  │  Reads OS Settings (live)
 //!   ├──────────┬──────────────────────────────┤
 //!   │  Local   │  Cloud API                   │
 //!   │  GGUF    │  OpenAI / Anthropic / Gemini │
@@ -40,67 +40,40 @@ pub use backends::api::ApiProvider;
 pub use router::InferenceRouter;
 
 use alloc::string::String;
-use spin::Mutex;
 
 // ---------------------------------------------------------------------------
-// Settings stubs — replaced by OS Settings in Phase 11
+// Settings integration — reads from OS Settings (Phase 11)
 // ---------------------------------------------------------------------------
-
-/// The currently selected backend name.
-///
-/// Defaults to "local" (which will fail gracefully and tell the user to
-/// configure a cloud API). In Phase 11, this will be read from OS Settings
-/// instead of this global.
-///
-/// Valid values: "local", "openai", "anthropic", "gemini", "custom"
-static BACKEND_SETTING: Mutex<String> = Mutex::new(String::new());
-
-/// API key for the currently selected cloud provider.
-///
-/// Empty by default — must be set via OS Settings (Phase 11) or
-/// programmatically for testing. The inference engine NEVER logs or
-/// exposes this value through the Glass Box.
-static API_KEY_SETTING: Mutex<String> = Mutex::new(String::new());
-
-/// Model ID for the currently selected provider.
-///
-/// Default values per provider:
-///   - OpenAI: "gpt-4o"
-///   - Anthropic: "claude-sonnet-4-20250514"
-///   - Gemini: "gemini-pro"
-///   - Custom: user-specified
-static MODEL_ID_SETTING: Mutex<String> = Mutex::new(String::new());
-
-/// Base URL for custom API backends (OpenAI-compatible endpoints).
-///
-/// Only used when backend is "custom". Examples:
-///   - "http://localhost:11434/v1/chat/completions" (Ollama)
-///   - "http://localhost:8080/v1/chat/completions" (local proxy)
-static BASE_URL_SETTING: Mutex<String> = Mutex::new(String::new());
+// In Phase 10, these were stub globals (Mutex<String>). Now they read from
+// the real OS Settings system, which is backed by SVFS for persistence
+// and uses AES-256-GCM to protect API keys.
 
 /// Get the currently configured backend name.
 ///
 /// Called by the InferenceRouter on every request to enable live switching.
-/// Returns "local" if no backend has been configured yet.
+/// Reads from OS Settings each time — no caching here. When a user changes
+/// the backend in settings, the very next inference request uses the new one.
+///
+/// Returns "local" if settings haven't been initialized yet.
 pub fn get_current_backend() -> String {
-    let setting = BACKEND_SETTING.lock();
-    if setting.is_empty() {
-        String::from("local")
-    } else {
-        setting.clone()
-    }
+    settings::current_backend()
 }
 
 /// Get the API settings for a given backend name.
 ///
 /// Returns (api_key, model_id, base_url, provider).
-/// In Phase 11, these will come from OS Settings instead of globals.
+/// All values come from OS Settings. The API key is decrypted from SVFS
+/// on each call — it's never cached in plaintext in the inference engine.
 pub fn get_api_settings(
     backend: &str,
 ) -> (String, String, String, ApiProvider) {
-    let api_key = API_KEY_SETTING.lock().clone();
-    let model_id = MODEL_ID_SETTING.lock().clone();
-    let base_url = BASE_URL_SETTING.lock().clone();
+    let (api_key, model_id, base_url) = if let Some(s) = settings::OS_SETTINGS.get() {
+        let inf = s.get_inference_settings();
+        let key = s.get_api_key().unwrap_or_default();
+        (key, inf.model_id, inf.api_base_url)
+    } else {
+        (String::new(), String::from("gpt-4o"), String::new())
+    };
 
     let provider = match backend {
         "openai" => ApiProvider::OpenAi,
@@ -126,14 +99,18 @@ pub fn get_api_settings(
 
 /// Set the inference backend programmatically.
 ///
-/// This is a temporary API for testing. In Phase 11, the OS Settings
-/// module will manage these values and the InferenceRouter will read
-/// them directly from settings.
+/// Writes to OS Settings, which persists to SVFS immediately. The change
+/// takes effect on the next inference request (the router reads settings
+/// fresh every time).
 pub fn configure(backend: &str, api_key: &str, model_id: &str, base_url: &str) {
-    *BACKEND_SETTING.lock() = String::from(backend);
-    *API_KEY_SETTING.lock() = String::from(api_key);
-    *MODEL_ID_SETTING.lock() = String::from(model_id);
-    *BASE_URL_SETTING.lock() = String::from(base_url);
+    if let Some(s) = settings::OS_SETTINGS.get() {
+        s.set("inference.backend", backend).ok();
+        s.set("inference.model_id", model_id).ok();
+        s.set("inference.api_base_url", base_url).ok();
+        if !api_key.is_empty() {
+            s.set_api_key(api_key).ok();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
