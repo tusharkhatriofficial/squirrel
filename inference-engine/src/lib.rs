@@ -3,11 +3,12 @@
 //! The inference engine provides a unified interface for AI text generation.
 //! It supports two backend types:
 //!
-//!   - **Local** (Stage 2): Run GGUF models directly on the CPU via llama.cpp
-//!     or candle. Currently stubbed — returns NoLocalModel.
+//!   - **Local**: Run GGUF models directly on the CPU using a pure-Rust
+//!     transformer implementation. Parses GGUF format, dequantizes weights,
+//!     runs the full LLaMA-style forward pass with KV-cache.
 //!
-//!   - **Cloud API** (MVP): Send prompts to OpenAI, Anthropic, or Gemini via
-//!     the network stack's HTTP client.
+//!   - **Cloud API**: Send prompts to OpenAI, Anthropic, or Gemini over
+//!     HTTPS (TLS 1.3) via the network stack's HttpClient.
 //!
 //! Architecture:
 //!
@@ -17,7 +18,7 @@
 //!   │  get_current_backend()                  │  Reads OS Settings (stub for MVP)
 //!   ├──────────┬──────────────────────────────┤
 //!   │  Local   │  Cloud API                   │
-//!   │  (stub)  │  OpenAI / Anthropic / Gemini │
+//!   │  GGUF    │  OpenAI / Anthropic / Gemini │
 //!   └──────────┴──────────────────────────────┘
 //!
 //! The router reads settings FRESH on every request, so backend switching
@@ -28,7 +29,11 @@ extern crate alloc;
 
 pub mod backend;
 pub mod backends;
+pub mod gguf;
 pub mod router;
+pub mod tensor;
+pub mod tokenizer;
+pub mod transformer;
 
 pub use backend::{InferenceBackend, InferenceError, InferenceRequest, InferenceResponse};
 pub use backends::api::ApiProvider;
