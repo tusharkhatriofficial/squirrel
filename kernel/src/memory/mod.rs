@@ -4,6 +4,7 @@ use limine::memory_map::EntryType;
 use limine::response::MemoryMapResponse;
 use spin::Once;
 
+pub mod dma;
 pub mod heap;
 pub mod pmm;
 pub mod vmm;
@@ -50,6 +51,13 @@ pub fn init(mmap: &MemoryMapResponse, hhdm_offset: u64) {
         "[Memory] Heap: {} MB at {:#x}",
         heap::HEAP_SIZE / 1024 / 1024,
         heap::HEAP_START
+    );
+
+    // Init DMA pool — physically contiguous memory for device drivers
+    dma::init(VMM.get().unwrap(), PMM.get().unwrap());
+    println!(
+        "[Memory] DMA pool: 2 MB at {:#x}",
+        0xFFFF_FFFF_9800_0000u64
     );
 
     // Sanity test — verify alloc works

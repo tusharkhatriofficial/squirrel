@@ -17,15 +17,23 @@ use x86_64::instructions::port::Port;
 
 use crate::nic::NicDriver;
 
-/// Convert a virtual address to a physical address for DMA.
-///
-/// Uses the kernel's page table translation since heap memory is mapped
-/// page-by-page to non-contiguous physical frames.
-fn virt_to_phys(virt: u64) -> u64 {
+/// Allocate physically contiguous DMA memory from the kernel's DMA pool.
+/// Returns (virtual_address, physical_address).
+fn dma_alloc(size: usize, align: usize) -> (u64, u64) {
     extern "Rust" {
-        fn kernel_virt_to_phys(virt: u64) -> u64;
+        fn kernel_dma_alloc(size: usize, align: usize) -> (u64, u64);
     }
-    unsafe { kernel_virt_to_phys(virt) }
+    let (v, p) = unsafe { kernel_dma_alloc(size, align) };
+    assert!(v != 0, "DMA allocation failed (requested {} bytes)", size);
+    (v, p)
+}
+
+/// Convert a DMA virtual address to physical.
+fn dma_virt_to_phys(virt: u64) -> u64 {
+    extern "Rust" {
+        fn kernel_dma_virt_to_phys(virt: u64) -> u64;
+    }
+    unsafe { kernel_dma_virt_to_phys(virt) }
 }
 
 // --- Virtio legacy interface register offsets (I/O space) ---
@@ -91,13 +99,13 @@ struct VringUsed {
 }
 
 /// A complete virtqueue: descriptor table + available ring + used ring.
-/// All three must be in contiguous, DMA-accessible memory.
+/// All three are in physically contiguous DMA memory.
 struct Virtqueue {
     descs: *mut VringDesc,
     avail: *mut VringAvail,
     used:  *mut VringUsed,
-    /// Backing memory (kept alive so pointers remain valid)
-    _backing: Vec<u8>,
+    /// Physical address of the descriptor table base (for REG_QUEUE_ADDR).
+    phys_base: u64,
     /// Next free descriptor index
     free_head: u16,
     /// Number of free descriptors
@@ -107,31 +115,31 @@ struct Virtqueue {
 }
 
 impl Virtqueue {
-    /// Allocate and initialize a virtqueue in heap memory.
+    /// Allocate and initialize a virtqueue in DMA-safe memory.
     ///
-    /// In a real OS this would use DMA-safe memory. Since QEMU's user-mode
-    /// networking accesses guest physical memory directly, heap memory works
-    /// for our MVP.
+    /// Uses the kernel's DMA pool which provides physically contiguous
+    /// memory that devices can safely read/write via DMA.
     fn new() -> Self {
         // Calculate sizes for each section
         let desc_size  = QUEUE_SIZE * core::mem::size_of::<VringDesc>();
         let avail_size = 4 + QUEUE_SIZE * 2 + 2; // flags(2) + idx(2) + ring + used_event(2)
         let used_size  = 4 + QUEUE_SIZE * core::mem::size_of::<VringUsedElem>() + 2;
 
-        // Allocate contiguous memory (page-aligned for device DMA)
-        let total = desc_size + avail_size + used_size + 4096; // extra for alignment
-        let mut backing = vec![0u8; total];
-        let base = backing.as_mut_ptr() as usize;
+        // Used ring must be page-aligned per virtio spec, so allocate enough
+        // that we can place used ring at a 4096-byte boundary within the block.
+        let used_offset = (desc_size + avail_size + 4095) & !4095;
+        let total = used_offset + used_size;
 
-        // Align descriptor table to 16 bytes
-        let desc_base = (base + 15) & !15;
-        let avail_base = desc_base + desc_size;
-        // Used ring must be aligned to 4096 (page) per virtio spec
-        let used_base = (avail_base + avail_size + 4095) & !4095;
+        // Allocate from DMA pool (page-aligned, physically contiguous)
+        let (virt, phys) = dma_alloc(total, 4096);
 
-        let descs = desc_base as *mut VringDesc;
-        let avail = avail_base as *mut VringAvail;
-        let used  = used_base as *mut VringUsed;
+        let desc_virt = virt as usize;
+        let avail_virt = desc_virt + desc_size;
+        let used_virt = desc_virt + used_offset;
+
+        let descs = desc_virt as *mut VringDesc;
+        let avail = avail_virt as *mut VringAvail;
+        let used  = used_virt as *mut VringUsed;
 
         // Initialize descriptor free list: each desc points to next
         for i in 0..(QUEUE_SIZE as u16) {
@@ -154,7 +162,7 @@ impl Virtqueue {
             descs,
             avail,
             used,
-            _backing: backing,
+            phys_base: phys,
             free_head: 0,
             num_free: QUEUE_SIZE as u16,
             last_used_idx: 0,
@@ -163,7 +171,7 @@ impl Virtqueue {
 
     /// Physical page number of the descriptor table (for REG_QUEUE_ADDR).
     fn page_number(&self) -> u32 {
-        (virt_to_phys(self.descs as u64) / 4096) as u32
+        (self.phys_base / 4096) as u32
     }
 
     /// Allocate one descriptor from the free list.
@@ -221,6 +229,12 @@ impl Virtqueue {
 
 // PCI scanning moved to pci.rs — use pci::find_nic() instead.
 
+/// Per-RX-buffer tracking: virtual + physical addresses for DMA.
+struct RxBufEntry {
+    virt: u64,
+    phys: u64,
+}
+
 /// The virtio-net device driver.
 ///
 /// Manages two virtqueues (RX and TX) and provides send/recv for raw
@@ -231,8 +245,8 @@ pub struct VirtioNet {
     pub mac: [u8; 6],
     rx_queue: Virtqueue,
     tx_queue: Virtqueue,
-    /// Pre-allocated RX buffers (one per descriptor, kept alive for DMA)
-    rx_buffers: Vec<Vec<u8>>,
+    /// Pre-allocated RX buffers in DMA memory (one per descriptor)
+    rx_buffers: Vec<RxBufEntry>,
 }
 
 // Safety: VirtioNet is only accessed from one context at a time (the
@@ -312,18 +326,17 @@ impl VirtioNet {
         self.fill_rx_queue();
     }
 
-    /// Pre-allocate RX buffers and submit them to the RX virtqueue.
+    /// Pre-allocate RX buffers in DMA memory and submit them to the RX virtqueue.
     /// The device will write received Ethernet frames into these buffers.
     fn fill_rx_queue(&mut self) {
         for _ in 0..QUEUE_SIZE {
-            let buf = vec![0u8; RX_BUF_SIZE];
-            let buf_phys = virt_to_phys(buf.as_ptr() as u64);
-            self.rx_buffers.push(buf);
+            let (virt, phys) = dma_alloc(RX_BUF_SIZE, 16);
+            self.rx_buffers.push(RxBufEntry { virt, phys });
 
             if let Some(desc_idx) = self.rx_queue.alloc_desc() {
                 unsafe {
                     let d = &mut *self.rx_queue.descs.add(desc_idx as usize);
-                    d.addr = buf_phys;
+                    d.addr = phys;
                     d.len = RX_BUF_SIZE as u32;
                     d.flags = VRING_DESC_F_WRITE; // Device writes into this buffer
                     d.next = 0;
@@ -338,7 +351,7 @@ impl VirtioNet {
     /// Send an Ethernet frame.
     ///
     /// Prepends the 12-byte virtio-net header (all zeros = no offloading),
-    /// copies the frame into a TX buffer, submits it to the TX virtqueue,
+    /// copies the frame into a DMA TX buffer, submits it to the TX virtqueue,
     /// and notifies the device.
     pub fn send_raw_frame(&mut self, frame: &[u8]) {
         // Reclaim any completed TX descriptors first
@@ -351,24 +364,25 @@ impl VirtioNet {
             None => return, // TX ring full, drop the frame
         };
 
-        // Build the TX buffer: virtio-net header + Ethernet frame
+        // Allocate TX buffer from DMA pool
         let total_len = VIRTIO_NET_HDR_SIZE + frame.len();
-        let mut tx_buf = vec![0u8; total_len];
-        // Header is all zeros (no checksum offload, no GSO)
-        tx_buf[VIRTIO_NET_HDR_SIZE..].copy_from_slice(frame);
+        let (tx_virt, tx_phys) = dma_alloc(total_len, 16);
 
+        // Build the TX buffer: virtio-net header (zeros) + Ethernet frame
         unsafe {
+            ptr::write_bytes(tx_virt as *mut u8, 0, VIRTIO_NET_HDR_SIZE);
+            ptr::copy_nonoverlapping(
+                frame.as_ptr(),
+                (tx_virt as *mut u8).add(VIRTIO_NET_HDR_SIZE),
+                frame.len(),
+            );
+
             let d = &mut *self.tx_queue.descs.add(desc_idx as usize);
-            d.addr = virt_to_phys(tx_buf.as_ptr() as u64);
+            d.addr = tx_phys;
             d.len = total_len as u32;
             d.flags = 0; // Device reads this buffer (no WRITE flag)
             d.next = 0;
         }
-
-        // Keep the buffer alive until the device is done with it.
-        // For simplicity in the MVP, we leak it. A production driver
-        // would track pending TX buffers and free them on completion.
-        core::mem::forget(tx_buf);
 
         self.tx_queue.push_avail(desc_idx);
         self.io_write16(REG_QUEUE_NOTIFY, 1); // Notify TX queue
@@ -391,8 +405,11 @@ impl VirtioNet {
         }
 
         // Copy the Ethernet frame (skip the 12-byte virtio-net header)
-        let rx_buf = &self.rx_buffers[desc_idx as usize];
-        buf[..frame_len].copy_from_slice(&rx_buf[VIRTIO_NET_HDR_SIZE..VIRTIO_NET_HDR_SIZE + frame_len]);
+        let entry = &self.rx_buffers[desc_idx as usize];
+        unsafe {
+            let src = (entry.virt as *const u8).add(VIRTIO_NET_HDR_SIZE);
+            ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), frame_len);
+        }
 
         // Re-submit this buffer to the RX queue for the next frame
         self.resubmit_rx(desc_idx);
@@ -401,9 +418,10 @@ impl VirtioNet {
 
     /// Re-submit an RX buffer to the device for reuse.
     fn resubmit_rx(&mut self, desc_idx: u16) {
+        let entry = &self.rx_buffers[desc_idx as usize];
         unsafe {
             let d = &mut *self.rx_queue.descs.add(desc_idx as usize);
-            d.addr = virt_to_phys(self.rx_buffers[desc_idx as usize].as_ptr() as u64);
+            d.addr = entry.phys;
             d.len = RX_BUF_SIZE as u32;
             d.flags = VRING_DESC_F_WRITE;
             d.next = 0;

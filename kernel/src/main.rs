@@ -476,6 +476,19 @@ pub extern "Rust" fn kernel_virt_to_phys(virt: u64) -> u64 {
         .unwrap_or(0)
 }
 
+/// Allocate DMA-safe physically contiguous memory.
+/// Returns (virtual_ptr, physical_addr), or (0, 0) on failure.
+#[no_mangle]
+pub extern "Rust" fn kernel_dma_alloc(size: usize, align: usize) -> (u64, u64) {
+    crate::memory::dma::dma_alloc(size, align).unwrap_or((0, 0))
+}
+
+/// Convert a DMA virtual address to physical. Returns 0 if not a DMA address.
+#[no_mangle]
+pub extern "Rust" fn kernel_dma_virt_to_phys(virt: u64) -> u64 {
+    crate::memory::dma::dma_virt_to_phys(virt)
+}
+
 /// Write raw text to the framebuffer without prefix or newline.
 /// Used by the display-module WASM for character echo.
 #[no_mangle]

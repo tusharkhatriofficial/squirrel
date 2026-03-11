@@ -101,6 +101,38 @@ impl PhysicalMemoryManager {
         None
     }
 
+    /// Allocate `count` physically contiguous 4KB frames.
+    /// Returns the physical address of the first frame, or None if no
+    /// contiguous run of that size exists.
+    pub fn allocate_contiguous(&mut self, count: usize) -> Option<PhysAddr> {
+        if count == 0 {
+            return None;
+        }
+        // Scan the bitmap for a run of `count` consecutive free frames
+        let mut run_start = 0;
+        let mut run_len = 0;
+
+        for idx in 0..self.total_frames {
+            if self.is_free(idx) {
+                if run_len == 0 {
+                    run_start = idx;
+                }
+                run_len += 1;
+                if run_len == count {
+                    // Found a contiguous run — mark all frames as used
+                    for i in run_start..(run_start + count) {
+                        self.set_used(i);
+                        self.free_frames -= 1;
+                    }
+                    return Some(PhysAddr::new((run_start * FRAME_SIZE) as u64));
+                }
+            } else {
+                run_len = 0;
+            }
+        }
+        None
+    }
+
     /// Free a physical frame
     pub fn free_frame(&mut self, frame: PhysFrame) {
         let idx = frame.start_address().as_u64() as usize / FRAME_SIZE;
