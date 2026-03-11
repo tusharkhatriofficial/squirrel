@@ -12,18 +12,34 @@ mod interrupts;
 mod memory;
 mod timer;
 
-use limine::request::{FramebufferRequest, HhdmRequest, MemoryMapRequest};
+use limine::request::{
+    FramebufferRequest, HhdmRequest, MemoryMapRequest,
+    RequestsEndMarker, RequestsStartMarker,
+};
 
-// Tell Limine what we need
+// Limine v8+ requires requests to be in a .limine_requests section
+// with start/end markers so the bootloader can find them.
 #[used]
+#[link_section = ".limine_requests_start"]
+static _REQUESTS_START: RequestsStartMarker = RequestsStartMarker::new();
+
+#[used]
+#[link_section = ".limine_requests"]
 static FRAMEBUFFER_REQ: FramebufferRequest = FramebufferRequest::new();
 #[used]
+#[link_section = ".limine_requests"]
 static HHDM_REQ: HhdmRequest = HhdmRequest::new();
 #[used]
+#[link_section = ".limine_requests"]
 static MEMORY_MAP_REQ: MemoryMapRequest = MemoryMapRequest::new();
 
-// Limine base revision (required by protocol)
 #[used]
+#[link_section = ".limine_requests_end"]
+static _REQUESTS_END: RequestsEndMarker = RequestsEndMarker::new();
+
+// Limine base revision (required by protocol — must also be in .limine_requests)
+#[used]
+#[link_section = ".limine_requests"]
 static BASE_REVISION: limine::BaseRevision = limine::BaseRevision::new();
 
 // Embed compiled WASM module binaries at compile time.
@@ -44,6 +60,20 @@ static INPUT_MODULE_WASM: &[u8] = include_bytes!(
 static STORAGE_MODULE_WASM: &[u8] = include_bytes!(
     "../../modules/storage-module/target/wasm32-unknown-unknown/release/squirrel_storage_module.wasm"
 );
+
+#[inline(never)]
+fn serial_print(msg: &[u8]) {
+    for &b in msg {
+        unsafe {
+            core::arch::asm!(
+                "out dx, al",
+                in("dx") 0x3F8u16,
+                in("al") b,
+                options(nostack, nomem)
+            );
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {

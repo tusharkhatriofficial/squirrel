@@ -24,7 +24,7 @@ wasm:
 build: wasm
 	cd "$(ROOT)" && cargo build --release -p squirrel-kernel
 
-run: build disk
+run: iso disk
 	$(QEMU) $(QEMU_FLAGS) \
 		-cdrom "$(ISO)" \
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
@@ -36,7 +36,7 @@ run: build disk
 		-netdev user,id=net0 -device virtio-net-pci,netdev=net0
 
 # Test with emulated Intel e1000 (same driver works on real Intel NICs)
-run-e1000: build disk
+run-e1000: iso disk
 	$(QEMU) $(QEMU_FLAGS) \
 		-cdrom "$(ISO)" \
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
@@ -48,7 +48,7 @@ run-e1000: build disk
 		-netdev user,id=net0 -device e1000,netdev=net0
 
 # Test with emulated Realtek RTL8139
-run-rtl8139: build disk
+run-rtl8139: iso disk
 	$(QEMU) $(QEMU_FLAGS) \
 		-cdrom "$(ISO)" \
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
@@ -59,7 +59,7 @@ run-rtl8139: build disk
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
 		-netdev user,id=net0 -device rtl8139,netdev=net0
 
-debug: build disk
+debug: iso disk
 	$(QEMU) $(QEMU_FLAGS) \
 		-cdrom "$(ISO)" \
 		-drive "file=$(DISK_IMG),format=raw,if=virtio" \
@@ -71,15 +71,17 @@ debug: build disk
 		-ex "break _start"
 
 iso: build
+	rm -rf "$(ISO_DIR)"
 	mkdir -p "$(ISO_DIR)/boot/limine"
 	cp "$(KERNEL)" "$(ISO_DIR)/boot/squirrel-kernel"
 	cp "$(ROOT)/build/limine.conf" "$(ISO_DIR)/boot/limine/limine.conf"
+	cp "$(ROOT)/build/limine.conf" "$(ISO_DIR)/limine.conf"
 	cp "$(LIMINE_DIR)/limine-bios.sys" "$(ISO_DIR)/boot/limine/"
 	cp "$(LIMINE_DIR)/limine-bios-cd.bin" "$(ISO_DIR)/boot/limine/"
 	cp "$(LIMINE_DIR)/limine-uefi-cd.bin" "$(ISO_DIR)/boot/limine/"
 	mkdir -p "$(ISO_DIR)/EFI/BOOT"
 	cp "$(LIMINE_DIR)/BOOTX64.EFI" "$(ISO_DIR)/EFI/BOOT/"
-	xorriso -as mkisofs \
+	xorriso -as mkisofs -R \
 		-b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \

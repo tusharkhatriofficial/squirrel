@@ -122,9 +122,30 @@ impl LocalApic {
 /// Must be called after memory::init() (needs HHDM_OFFSET) and before
 /// enabling interrupts with `sti`.
 pub fn init() {
+    use x86_64::structures::paging::{PageTableFlags, PhysFrame};
+    use x86_64::{PhysAddr, VirtAddr};
+
     // Compute virtual address of APIC MMIO via Limine's HHDM
     let hhdm = crate::memory::HHDM_OFFSET.load(Ordering::Relaxed);
     let apic_virt = hhdm + APIC_PHYS_BASE;
+
+    // Map the APIC MMIO page — Limine's HHDM may not cover device memory
+    {
+        let vmm = crate::memory::VMM.get().expect("VMM not initialized");
+        let pmm = crate::memory::PMM.get().expect("PMM not initialized");
+        let flags = PageTableFlags::PRESENT
+            | PageTableFlags::WRITABLE
+            | PageTableFlags::NO_CACHE;
+        let phys_frame =
+            PhysFrame::containing_address(PhysAddr::new(APIC_PHYS_BASE));
+        // Ignore error if already mapped
+        let _ = vmm.lock().map_page(
+            VirtAddr::new(apic_virt),
+            phys_frame,
+            flags,
+            pmm,
+        );
+    }
 
     // Disable the legacy 8259 PIC by masking all IRQs on both chips.
     // This prevents spurious legacy interrupts that could cause conflicts
