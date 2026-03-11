@@ -273,8 +273,6 @@ impl VirtioNet {
         // In virtio legacy, the device dictates the queue size.
         let rx_qsize = Self::read_queue_size(io_base, 0);
         let tx_qsize = Self::read_queue_size(io_base, 1);
-        crate::println!("[Network] virtio queues: RX size={}, TX size={}", rx_qsize, tx_qsize);
-
         let mut dev = Self {
             io_base,
             mac: [0u8; 6],
@@ -283,10 +281,6 @@ impl VirtioNet {
             rx_buffers: Vec::new(),
         };
         dev.init();
-        crate::println!("[Network] virtio RX queue: phys_base={:#x}, page_num={}",
-            dev.rx_queue.phys_base, dev.rx_queue.page_number());
-        crate::println!("[Network] virtio TX queue: phys_base={:#x}, page_num={}",
-            dev.tx_queue.phys_base, dev.tx_queue.page_number());
         dev
     }
 
@@ -409,7 +403,6 @@ impl VirtioNet {
 
         self.tx_queue.push_avail(desc_idx);
         self.io_write16(REG_QUEUE_NOTIFY, 1); // Notify TX queue
-        crate::println!("[Network] TX: sent {} bytes (phys={:#x})", total_len, tx_phys);
     }
 
     /// Receive a pending Ethernet frame (non-blocking).
@@ -423,7 +416,6 @@ impl VirtioNet {
         let _ = self.io_read8(REG_ISR_STATUS);
 
         let (desc_idx, total_len) = self.rx_queue.pop_used()?;
-        crate::println!("[Network] RX: got {} bytes (desc={})", total_len, desc_idx);
 
         // The device wrote total_len bytes including the virtio-net header
         let frame_len = total_len as usize - VIRTIO_NET_HDR_SIZE;

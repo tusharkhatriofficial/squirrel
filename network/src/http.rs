@@ -67,7 +67,7 @@ impl HttpClient {
         let mut full_request = request.into_bytes();
         full_request.extend_from_slice(body);
 
-        if is_https {
+        let result = if is_https {
             // 5a. HTTPS: perform TLS handshake and send/receive encrypted
             let response_bytes = crate::tls::tls_post(
                 stack,
@@ -83,7 +83,12 @@ impl HttpClient {
             // 6. Read the full response
             let response_bytes = tcp_read_to_end(stack, tcp_handle)?;
             parse_http_response(&response_bytes)
-        }
+        };
+
+        // Clean up the TCP socket so it doesn't linger in the socket set
+        stack.tcp_close(tcp_handle);
+
+        result
     }
 }
 
@@ -198,6 +203,10 @@ fn parse_url(url: &str) -> Result<(&str, u16, &str, bool), &'static str> {
 }
 
 /// Parse a raw HTTP response into status code + body.
+///
+/// Handles chunked transfer encoding by reassembling chunks into a
+/// contiguous body. Each chunk is: `<hex-size>\r\n<data>\r\n`, ending
+/// with a zero-length chunk `0\r\n\r\n`.
 fn parse_http_response(bytes: &[u8]) -> Result<HttpResponse, &'static str> {
     let response = core::str::from_utf8(bytes).map_err(|_| "Response is not valid UTF-8")?;
     let (header_str, body_str) = response
@@ -214,10 +223,69 @@ fn parse_http_response(bytes: &[u8]) -> Result<HttpResponse, &'static str> {
         .and_then(|s| s.parse().ok())
         .ok_or("Invalid HTTP status code")?;
 
+    // Check if response uses chunked transfer encoding
+    let is_chunked = header_str
+        .lines()
+        .any(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("transfer-encoding") && lower.contains("chunked")
+        });
+
+    let body = if is_chunked {
+        decode_chunked(body_str)
+    } else {
+        body_str.as_bytes().to_vec()
+    };
+
     Ok(HttpResponse {
         status_code,
-        body: body_str.as_bytes().to_vec(),
+        body,
     })
+}
+
+/// Decode a chunked HTTP response body.
+///
+/// Format: `<hex-size>\r\n<data>\r\n<hex-size>\r\n<data>\r\n0\r\n\r\n`
+fn decode_chunked(body: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut remaining = body;
+
+    loop {
+        // Find the chunk size line
+        let size_end = match remaining.find("\r\n") {
+            Some(pos) => pos,
+            None => break,
+        };
+        let size_str = remaining[..size_end].trim();
+        // Chunk size might have extensions after ';', ignore them
+        let size_hex = size_str.split(';').next().unwrap_or("0").trim();
+        let chunk_size = match usize::from_str_radix(size_hex, 16) {
+            Ok(s) => s,
+            Err(_) => break,
+        };
+
+        if chunk_size == 0 {
+            break; // Final chunk
+        }
+
+        let data_start = size_end + 2; // skip \r\n after size
+        let data_end = data_start + chunk_size;
+        if data_end > remaining.len() {
+            // Partial chunk — take what we have
+            result.extend_from_slice(remaining[data_start..].as_bytes());
+            break;
+        }
+
+        result.extend_from_slice(remaining[data_start..data_end].as_bytes());
+        // Skip past chunk data + trailing \r\n
+        remaining = if data_end + 2 <= remaining.len() {
+            &remaining[data_end + 2..]
+        } else {
+            break;
+        };
+    }
+
+    result
 }
 
 fn kernel_ms() -> u64 {

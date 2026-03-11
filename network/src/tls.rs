@@ -162,8 +162,6 @@ pub fn tls_post(
     tls.open(TlsContext::new(&config, provider))
         .map_err(|_| "TLS handshake failed")?;
 
-    crate::println!("[Network] TLS 1.3 handshake complete ({})", server_name);
-
     // Send the HTTP request over TLS
     let mut offset = 0;
     while offset < request_bytes.len() {

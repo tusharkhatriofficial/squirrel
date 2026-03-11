@@ -117,7 +117,7 @@ impl Agent for InferenceRouter {
     fn poll(&mut self, ctx: &AgentContext) -> AgentPoll {
         // Check for pending inference requests
         let intent = match ctx.bus.try_recv() {
-            Some(intent) if intent.semantic_type.matches("inference.generate") => intent,
+            Some(intent) if intent.semantic_type.as_str() == "inference.generate" => intent,
             Some(_) => return AgentPoll::Yield,
             None => return AgentPoll::Pending,
         };

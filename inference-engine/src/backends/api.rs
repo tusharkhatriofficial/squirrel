@@ -235,7 +235,7 @@ impl InferenceBackend for ApiInferenceBackend {
 
         let start_ms = kernel_ms();
 
-        crate::println!("[Inference] Calling {} API (model: {})...",
+        crate::println!("[thinking via {} ({})...]",
             self.provider_name(), self.model_id);
 
         let url = self.build_url();
@@ -258,13 +258,18 @@ impl InferenceBackend for ApiInferenceBackend {
             .post_json(&mut stack, &url, &header_refs, &body)
             .map_err(|e| InferenceError::ApiError(format!("HTTP error: {}", e)))?;
 
-        // Check for HTTP errors
+        // Check for HTTP errors (4xx, 5xx)
         if response.status_code != 200 {
-            let err_body = core::str::from_utf8(&response.body).unwrap_or("(binary)");
-            let preview = &err_body[..err_body.len().min(200)];
+            let err_body = core::str::from_utf8(&response.body).unwrap_or("");
+            // Try to extract "message" field from JSON error response
+            let msg = extract_json_string(err_body, "\"message\":")
+                .unwrap_or_else(|| {
+                    let preview = &err_body[..err_body.len().min(100)];
+                    format!("{}", preview)
+                });
             return Err(InferenceError::ApiError(format!(
                 "HTTP {} — {}",
-                response.status_code, preview
+                response.status_code, msg
             )));
         }
 
@@ -272,12 +277,6 @@ impl InferenceBackend for ApiInferenceBackend {
         let text = self.parse_response_text(&response.body)?;
 
         let latency = kernel_ms() - start_ms;
-        crate::println!(
-            "[Inference] {} responded in {}ms ({} chars)",
-            self.provider_name(),
-            latency,
-            text.len()
-        );
 
         Ok(InferenceResponse {
             text,

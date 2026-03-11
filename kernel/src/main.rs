@@ -289,6 +289,15 @@ pub extern "C" fn _start() -> ! {
         );
         println!("[OK] Inference engine agent registered");
 
+        // Register SettingsHandler — applies "settings.set" intents from the
+        // WASM settings-module and "input.secret.response" (API key entry).
+        sart.register(
+            alloc::boxed::Box::new(agents::settings_handler::SettingsHandler::new()),
+            &["settings.set", "input.secret.response"],
+            tick,
+        );
+        println!("[OK] Settings handler agent registered");
+
         // Load the hello-module WASM binary and register it as a SART agent.
         // This is where the Capability Fabric comes alive: a WASM module
         // becomes a first-class agent, scheduled alongside native Rust agents.

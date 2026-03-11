@@ -5,7 +5,7 @@ ISO_DIR     := $(ROOT)/target/iso
 ISO         := $(ROOT)/target/squirrel.iso
 LIMINE_DIR  := $(ROOT)/build/limine
 QEMU        := qemu-system-x86_64
-QEMU_FLAGS  := -m 4G -serial stdio -vga std
+QEMU_FLAGS  := -m 4G -serial stdio -vga std -cpu Haswell
 
 # For QEMU development disk (SVFS storage)
 DISK_IMG    := $(ROOT)/target/squirrel-disk.img
