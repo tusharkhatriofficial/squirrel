@@ -137,6 +137,23 @@ pub fn _print(args: core::fmt::Arguments) {
     WRITER.lock().as_mut().unwrap().write_fmt(args).unwrap();
 }
 
+/// Write raw text to the framebuffer without any prefix or automatic newline.
+/// Supports \n for newline and \x08 for backspace.
+pub fn write_str_raw(s: &str) {
+    if let Some(writer) = WRITER.lock().as_mut() {
+        for c in s.chars() {
+            if c == '\x08' {
+                // Backspace: move cursor back one position
+                if writer.cursor_x > 0 {
+                    writer.cursor_x -= 1;
+                }
+            } else {
+                writer.write_char(c);
+            }
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! println {
     ()            => ($crate::print!("\n"));

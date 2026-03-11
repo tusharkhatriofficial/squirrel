@@ -24,9 +24,10 @@ use alloc::{string::String, vec::Vec};
 pub struct HostState {
     /// The module's name (used for bus routing and log prefixes)
     pub module_name: String,
-    /// Pending outbound intent: (semantic_type, payload_bytes).
-    /// Set by intent_send(), consumed by the ModuleAgent's poll() loop.
-    pub pending_send: Option<(String, Vec<u8>)>,
+    /// Pending outbound intents: (semantic_type, payload_bytes).
+    /// Pushed by intent_send(), drained by the ModuleAgent's poll() loop.
+    /// Vec instead of Option so multiple intents per tick aren't lost.
+    pub pending_send: Vec<(String, Vec<u8>)>,
     /// Buffered received intent.
     /// Set by the ModuleAgent's poll() loop, consumed by intent_recv().
     pub pending_recv: Option<Intent>,
@@ -36,7 +37,7 @@ impl HostState {
     pub fn new(module_name: &str) -> Self {
         Self {
             module_name: String::from(module_name),
-            pending_send: None,
+            pending_send: Vec::new(),
             pending_recv: None,
         }
     }
@@ -89,7 +90,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) {
                 // Store in HostState — the ModuleAgent will dispatch it
                 let mut ctx = caller.as_context_mut();
                 let state = ctx.data_mut();
-                state.pending_send = Some((intent_type, payload_bytes));
+                state.pending_send.push((intent_type, payload_bytes));
                 0 // success
             },
         )
@@ -222,6 +223,31 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) {
             },
         )
         .expect("failed to register log");
+
+    // ── 6. display_write ─────────────────────────────────────────────
+    // WASM calls: display_write(msg_ptr, msg_len)
+    // Writes raw text directly to the framebuffer without any prefix or
+    // trailing newline. Used by the display-module for character echo.
+    linker
+        .func_wrap(
+            "squirrel",
+            "display_write",
+            |caller: Caller<HostState>, msg_ptr: i32, msg_len: i32| {
+                let mem = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(m)) => m,
+                    _ => return,
+                };
+                let data = mem.data(caller.as_context());
+                let msg = read_wasm_bytes(data, msg_ptr, msg_len);
+                if let Ok(s) = core::str::from_utf8(&msg) {
+                    extern "Rust" {
+                        fn kernel_display_write(s: &str);
+                    }
+                    unsafe { kernel_display_write(s); }
+                }
+            },
+        )
+        .expect("failed to register display_write");
 }
 
 /// Safely read bytes from WASM linear memory.

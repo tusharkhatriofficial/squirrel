@@ -41,10 +41,6 @@ impl Agent for HeartbeatAgent {
         // Fire every 100 ticks (1 second at 100 Hz)
         if ctx.tick >= self.last_tick + 100 {
             self.beat_count += 1;
-            println!(
-                "[heartbeat] tick={} beat={}",
-                ctx.tick, self.beat_count
-            );
 
             let intent = Intent::request(
                 "system.heartbeat",

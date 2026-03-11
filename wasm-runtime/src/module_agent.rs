@@ -117,11 +117,12 @@ impl Agent for ModuleAgent {
             }
         }
 
-        // ── Step 3: Dispatch any outbound intent from the module ──
-        // If the WASM module called intent_send() during its poll(),
-        // the data is sitting in HostState.pending_send. We take it
-        // and send it onto the real Intent Bus.
-        if let Some((intent_type, payload)) = self.store.as_context_mut().data_mut().pending_send.take() {
+        // ── Step 3: Dispatch ALL outbound intents from the module ──
+        // If the WASM module called intent_send() multiple times during
+        // its poll(), all intents are queued in HostState.pending_send.
+        // We drain them all and send each onto the real Intent Bus.
+        let pending = core::mem::take(&mut self.store.as_context_mut().data_mut().pending_send);
+        for (intent_type, payload) in pending {
             let intent = Intent {
                 id: 0, // assigned by the bus
                 reply_to: None,

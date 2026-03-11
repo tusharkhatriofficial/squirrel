@@ -3,6 +3,7 @@ use spin::Once;
 
 pub mod apic;
 pub mod handlers;
+pub mod ioapic;
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
 

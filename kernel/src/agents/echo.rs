@@ -22,11 +22,9 @@ impl Agent for EchoAgent {
     fn poll(&mut self, ctx: &AgentContext) -> AgentPoll {
         match ctx.bus.try_recv() {
             Some(intent) => {
-                if let Ok(hb) = intent.decode::<Heartbeat>() {
-                    println!(
-                        "[echo] received heartbeat #{} at tick {}",
-                        hb.beat, hb.tick
-                    );
+                if let Ok(_hb) = intent.decode::<Heartbeat>() {
+                    // Heartbeat received — Intent Bus routing works.
+                    // (Silent in production; Glass Box tracks state.)
                 }
                 AgentPoll::Yield
             }

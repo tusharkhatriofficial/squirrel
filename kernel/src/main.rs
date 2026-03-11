@@ -199,9 +199,17 @@ pub extern "C" fn _start() -> ! {
     crate::interrupts::apic::init();
     println!("[OK] APIC + timer (100 Hz)");
 
-    // 8. PS/2 keyboard driver
+    // 8a. I/O APIC — routes external IRQs (keyboard, PCI) to Local APIC vectors
+    crate::interrupts::ioapic::init();
+
+    // 8b. PS/2 keyboard driver
     crate::drivers::keyboard::init();
     println!("[OK] Keyboard");
+
+    // 8c. Enable interrupts — needed before network init so the timer
+    //     drives DHCP timeouts and smoltcp polling.
+    x86_64::instructions::interrupts::enable();
+    println!("[OK] Interrupts enabled");
 
     // 9. Network stack — auto-detects NIC (virtio-net, Intel e1000, Realtek RTL8139)
     network::set_log_fn(|msg| {
@@ -243,7 +251,7 @@ pub extern "C" fn _start() -> ! {
         // Register the Glass Box agent first — it subscribes to glass-box
         // intents so it can receive state updates from all other agents.
         sart.register(
-            alloc::boxed::Box::new(glass_box::GlassBoxAgent::new(true)),
+            alloc::boxed::Box::new(glass_box::GlassBoxAgent::new(false)),
             &["glass-box.update", "glass-box.module.stopped"],
             tick,
         );
@@ -417,9 +425,8 @@ pub extern "C" fn _start() -> ! {
             println!("[OK] Glass Box self-test: update sent");
         }
 
-        // 14. Enable interrupts — APIC and IDT must be ready before this
-        x86_64::instructions::interrupts::enable();
-        println!("[OK] Interrupts enabled — SART running");
+        // 14. SART main loop
+        println!("[OK] SART running");
 
         // Kernel idle loop — SART is driven by the main loop, woken by HLT
         // on each timer interrupt (100 Hz). This avoids running agents inside
@@ -445,6 +452,35 @@ pub extern "C" fn _start() -> ! {
 #[no_mangle]
 pub extern "Rust" fn kernel_milliseconds() -> u64 {
     crate::timer::milliseconds()
+}
+
+/// Export HHDM offset for the network crate's DMA address translation.
+#[no_mangle]
+pub extern "Rust" fn kernel_hhdm_offset() -> u64 {
+    crate::memory::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Translate a virtual address to physical using the kernel's page table.
+///
+/// Used by the virtio-net driver for DMA buffer addresses. Returns 0 on failure.
+#[no_mangle]
+pub extern "Rust" fn kernel_virt_to_phys(virt: u64) -> u64 {
+    use x86_64::VirtAddr;
+    let vmm = match crate::memory::VMM.get() {
+        Some(v) => v,
+        None => return 0,
+    };
+    vmm.lock()
+        .translate(VirtAddr::new(virt))
+        .map(|p| p.as_u64())
+        .unwrap_or(0)
+}
+
+/// Write raw text to the framebuffer without prefix or newline.
+/// Used by the display-module WASM for character echo.
+#[no_mangle]
+pub extern "Rust" fn kernel_display_write(s: &str) {
+    crate::display::write_str_raw(s);
 }
 
 #[panic_handler]

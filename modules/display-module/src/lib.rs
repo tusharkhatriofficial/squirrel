@@ -33,6 +33,7 @@ extern "C" {
         val_len: i32,
     );
     fn log(msg_ptr: *const u8, msg_len: i32);
+    fn display_write(msg_ptr: *const u8, msg_len: i32);
 }
 
 /// Number of lines printed since boot (tracked for Glass Box visibility).
@@ -130,9 +131,9 @@ pub extern "C" fn poll() {
     let payload = &buf[payload_start..payload_end];
 
     if intent_type == b"display.print" {
-        // Forward text to kernel framebuffer
+        // Write raw text to framebuffer (no prefix, no newline)
         unsafe {
-            log(payload.as_ptr(), payload.len() as i32);
+            display_write(payload.as_ptr(), payload.len() as i32);
             LINE_COUNT += 1;
         }
 
@@ -148,7 +149,7 @@ pub extern "C" fn poll() {
     } else if intent_type == b"display.prompt" {
         // Print the AI prompt prefix
         unsafe {
-            log(b"> ".as_ptr(), 2);
+            display_write(b"> ".as_ptr(), 2);
         }
     }
 }

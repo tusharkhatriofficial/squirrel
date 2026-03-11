@@ -17,6 +17,17 @@ use x86_64::instructions::port::Port;
 
 use crate::nic::NicDriver;
 
+/// Convert a virtual address to a physical address for DMA.
+///
+/// Uses the kernel's page table translation since heap memory is mapped
+/// page-by-page to non-contiguous physical frames.
+fn virt_to_phys(virt: u64) -> u64 {
+    extern "Rust" {
+        fn kernel_virt_to_phys(virt: u64) -> u64;
+    }
+    unsafe { kernel_virt_to_phys(virt) }
+}
+
 // --- Virtio legacy interface register offsets (I/O space) ---
 const REG_DEVICE_FEATURES: u16 = 0x00; // R:  device feature bits
 const REG_DRIVER_FEATURES: u16 = 0x04; // W:  driver-accepted features
@@ -152,7 +163,7 @@ impl Virtqueue {
 
     /// Physical page number of the descriptor table (for REG_QUEUE_ADDR).
     fn page_number(&self) -> u32 {
-        (self.descs as u32) / 4096
+        (virt_to_phys(self.descs as u64) / 4096) as u32
     }
 
     /// Allocate one descriptor from the free list.
@@ -306,13 +317,13 @@ impl VirtioNet {
     fn fill_rx_queue(&mut self) {
         for _ in 0..QUEUE_SIZE {
             let buf = vec![0u8; RX_BUF_SIZE];
-            let buf_ptr = buf.as_ptr() as u64;
+            let buf_phys = virt_to_phys(buf.as_ptr() as u64);
             self.rx_buffers.push(buf);
 
             if let Some(desc_idx) = self.rx_queue.alloc_desc() {
                 unsafe {
                     let d = &mut *self.rx_queue.descs.add(desc_idx as usize);
-                    d.addr = buf_ptr;
+                    d.addr = buf_phys;
                     d.len = RX_BUF_SIZE as u32;
                     d.flags = VRING_DESC_F_WRITE; // Device writes into this buffer
                     d.next = 0;
@@ -348,7 +359,7 @@ impl VirtioNet {
 
         unsafe {
             let d = &mut *self.tx_queue.descs.add(desc_idx as usize);
-            d.addr = tx_buf.as_ptr() as u64;
+            d.addr = virt_to_phys(tx_buf.as_ptr() as u64);
             d.len = total_len as u32;
             d.flags = 0; // Device reads this buffer (no WRITE flag)
             d.next = 0;
@@ -392,7 +403,7 @@ impl VirtioNet {
     fn resubmit_rx(&mut self, desc_idx: u16) {
         unsafe {
             let d = &mut *self.rx_queue.descs.add(desc_idx as usize);
-            d.addr = self.rx_buffers[desc_idx as usize].as_ptr() as u64;
+            d.addr = virt_to_phys(self.rx_buffers[desc_idx as usize].as_ptr() as u64);
             d.len = RX_BUF_SIZE as u32;
             d.flags = VRING_DESC_F_WRITE;
             d.next = 0;
