@@ -178,65 +178,6 @@ impl NetworkStack {
     /// 1. Pull received frames from NIC hardware
     /// 2. Let smoltcp process all protocol state machines
     /// 3. Push outgoing frames to NIC hardware
-    pub fn poll(&mut self) {
-        self.adapter.poll_hardware();
-        self.interface
-            .poll(now(), &mut self.adapter, &mut self.sockets);
-        // Flush any frames smoltcp generated during poll
-        self.adapter.poll_hardware();
-    }
-
-    /// Run DHCP to acquire an IP address, gateway, and DNS server.
-    ///
-    /// Blocks (with HLT-based power-saving) until DHCP completes or
-    /// times out after 10 seconds.
-    pub fn run_dhcp(&mut self) -> Result<Ipv4Address, &'static str> {
-        let dhcp_handle = self.sockets.add(dhcpv4::Socket::new());
-        let deadline_ms = kernel_ms() + 10_000;
-
-        loop {
-            self.poll();
-
-            let event = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).poll();
-            if let Some(dhcpv4::Event::Configured(config)) = event {
-                let ip = config.address.address();
-                let prefix_len = config.address.prefix_len();
-
-                self.ip_addr = Some(ip);
-                self.gateway = config.router;
-                self.dns_server = config.dns_servers.first().copied();
-
-                // Apply the acquired IP address to the interface
-                self.interface.update_ip_addrs(|addrs| {
-                    addrs.push(IpCidr::Ipv4(Ipv4Cidr::new(ip, prefix_len))).ok();
-                });
-                // Set the default gateway for outbound traffic
-                if let Some(gw) = config.router {
-                    self.interface.routes_mut().add_default_ipv4_route(gw).ok();
-                }
-
-                return Ok(ip);
-            }
-
-            if kernel_ms() > deadline_ms {
-                return Err("DHCP timeout");
-            }
-            x86_64::instructions::hlt();
-        }
-    }
-
-    /// Resolve a hostname to an IPv4 address using the DHCP-provided DNS server.
-    ///
-    /// Blocks until the DNS response arrives or times out after 5 seconds.
-    pub fn resolve(&mut self, hostname: &str) -> Result<Ipv4Address, &'static str> {
-        let dns_server = self.dns_server.ok_or("No DNS server")?;
-        let servers = [smoltcp::wire::IpAddress::Ipv4(dns_server)];
-        let dns_socket = dns::Socket::new(&servers, vec![]);
-        let handle = self.sockets.add(dns_socket);
-
-        let query = self
-            .sockets
-            .get_mut::<dns::Socket>(handle)
             .start_query(self.interface.context(), hostname, smoltcp::wire::DnsQueryType::A)
             .map_err(|_| "DNS query failed")?;
 

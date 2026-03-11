@@ -28,14 +28,6 @@ fn dma_alloc(size: usize, align: usize) -> (u64, u64) {
     (v, p)
 }
 
-/// Convert a DMA virtual address to physical.
-fn dma_virt_to_phys(virt: u64) -> u64 {
-    extern "Rust" {
-        fn kernel_dma_virt_to_phys(virt: u64) -> u64;
-    }
-    unsafe { kernel_dma_virt_to_phys(virt) }
-}
-
 // --- Virtio legacy interface register offsets (I/O space) ---
 const REG_DEVICE_FEATURES: u16 = 0x00; // R:  device feature bits
 const REG_DRIVER_FEATURES: u16 = 0x04; // W:  driver-accepted features
@@ -56,13 +48,11 @@ const STATUS_DRIVER_OK:   u8 = 4;
 const VIRTIO_NET_F_MAC: u32 = 1 << 5; // Device has a MAC address
 
 // --- Virtqueue descriptor flags ---
-const VRING_DESC_F_NEXT:  u16 = 1; // Buffer continues via `next` field
 const VRING_DESC_F_WRITE: u16 = 2; // Buffer is device-writable (for RX)
 
 // --- Constants ---
-const QUEUE_SIZE: usize = 64;
-const RX_BUF_SIZE: usize = 1514 + 12; // Max Ethernet frame + virtio-net header
-const VIRTIO_NET_HDR_SIZE: usize = 12; // Legacy virtio-net header (no mergeable bufs)
+const RX_BUF_SIZE: usize = 1514 + 10; // Max Ethernet frame + virtio-net header
+const VIRTIO_NET_HDR_SIZE: usize = 10; // Legacy virtio-net header (without VIRTIO_NET_F_MRG_RXBUF)
 
 /// A single virtqueue descriptor (16 bytes, as defined by virtio spec).
 #[repr(C, align(16))]
@@ -74,14 +64,6 @@ struct VringDesc {
     next:  u16, // Index of next descriptor (if F_NEXT set)
 }
 
-/// The "available" ring — driver writes here to offer buffers to device.
-#[repr(C, align(2))]
-struct VringAvail {
-    flags: u16,
-    idx:   u16,                    // Next index the driver will write
-    ring:  [u16; QUEUE_SIZE],      // Descriptor chain heads
-}
-
 /// One entry in the "used" ring — device writes here when done with a buffer.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -90,22 +72,21 @@ struct VringUsedElem {
     len: u32, // Total bytes written by device
 }
 
-/// The "used" ring — device writes here to return consumed buffers.
-#[repr(C, align(4))]
-struct VringUsed {
-    flags: u16,
-    idx:   u16,                         // Next index the device will write
-    ring:  [VringUsedElem; QUEUE_SIZE],
-}
-
 /// A complete virtqueue: descriptor table + available ring + used ring.
 /// All three are in physically contiguous DMA memory.
+///
+/// Uses raw pointers instead of fixed-size Rust structs because the queue
+/// size is determined by the device at runtime (typically 256 in QEMU).
 struct Virtqueue {
     descs: *mut VringDesc,
-    avail: *mut VringAvail,
-    used:  *mut VringUsed,
+    /// Pointer to avail.flags (u16), followed by avail.idx (u16), then ring[qsize]
+    avail_base: *mut u8,
+    /// Pointer to used.flags (u16), followed by used.idx (u16), then ring[qsize]
+    used_base: *mut u8,
     /// Physical address of the descriptor table base (for REG_QUEUE_ADDR).
     phys_base: u64,
+    /// Queue size reported by device (number of descriptors)
+    qsize: usize,
     /// Next free descriptor index
     free_head: u16,
     /// Number of free descriptors
@@ -117,16 +98,15 @@ struct Virtqueue {
 impl Virtqueue {
     /// Allocate and initialize a virtqueue in DMA-safe memory.
     ///
-    /// Uses the kernel's DMA pool which provides physically contiguous
-    /// memory that devices can safely read/write via DMA.
-    fn new() -> Self {
-        // Calculate sizes for each section
-        let desc_size  = QUEUE_SIZE * core::mem::size_of::<VringDesc>();
-        let avail_size = 4 + QUEUE_SIZE * 2 + 2; // flags(2) + idx(2) + ring + used_event(2)
-        let used_size  = 4 + QUEUE_SIZE * core::mem::size_of::<VringUsedElem>() + 2;
+    /// `qsize` must be the value read from REG_QUEUE_SIZE — in virtio legacy,
+    /// the device dictates the queue size and the driver must use it exactly.
+    fn new(qsize: usize) -> Self {
+        // Calculate sizes per virtio 0.9.5 spec
+        let desc_size  = qsize * core::mem::size_of::<VringDesc>(); // 16 bytes each
+        let avail_size = 4 + qsize * 2 + 2; // flags(2) + idx(2) + ring[qsize](2 each) + used_event(2)
+        let used_size  = 4 + qsize * core::mem::size_of::<VringUsedElem>() + 2; // flags(2)+idx(2)+ring[qsize](8 each)+avail_event(2)
 
-        // Used ring must be page-aligned per virtio spec, so allocate enough
-        // that we can place used ring at a 4096-byte boundary within the block.
+        // Used ring must start at next 4096-byte boundary after avail ring
         let used_offset = (desc_size + avail_size + 4095) & !4095;
         let total = used_offset + used_size;
 
@@ -138,33 +118,28 @@ impl Virtqueue {
         let used_virt = desc_virt + used_offset;
 
         let descs = desc_virt as *mut VringDesc;
-        let avail = avail_virt as *mut VringAvail;
-        let used  = used_virt as *mut VringUsed;
 
-        // Initialize descriptor free list: each desc points to next
-        for i in 0..(QUEUE_SIZE as u16) {
-            unsafe {
-                let d = &mut *descs.add(i as usize);
-                d.addr = 0;
-                d.len = 0;
-                d.flags = 0;
-                d.next = if (i as usize) < QUEUE_SIZE - 1 { i + 1 } else { 0 };
-            }
+        // Zero the entire allocation
+        unsafe {
+            ptr::write_bytes(virt as *mut u8, 0, total);
         }
 
-        // Zero out avail and used rings
-        unsafe {
-            ptr::write_bytes(avail, 0, 1);
-            ptr::write_bytes(used, 0, 1);
+        // Initialize descriptor free list: each desc points to next
+        for i in 0..qsize {
+            unsafe {
+                let d = &mut *descs.add(i);
+                d.next = if i < qsize - 1 { (i + 1) as u16 } else { 0 };
+            }
         }
 
         Virtqueue {
             descs,
-            avail,
-            used,
+            avail_base: avail_virt as *mut u8,
+            used_base: used_virt as *mut u8,
             phys_base: phys,
+            qsize,
             free_head: 0,
-            num_free: QUEUE_SIZE as u16,
+            num_free: qsize as u16,
             last_used_idx: 0,
         }
     }
@@ -172,6 +147,40 @@ impl Virtqueue {
     /// Physical page number of the descriptor table (for REG_QUEUE_ADDR).
     fn page_number(&self) -> u32 {
         (self.phys_base / 4096) as u32
+    }
+
+    // --- Avail ring accessors (raw pointer math) ---
+    // Layout: [flags: u16][idx: u16][ring: u16 * qsize][used_event: u16]
+
+    fn avail_idx(&self) -> u16 {
+        unsafe { ptr::read_volatile((self.avail_base as *const u16).add(1)) }
+    }
+
+    fn set_avail_idx(&self, val: u16) {
+        unsafe { ptr::write_volatile((self.avail_base as *mut u16).add(1), val); }
+    }
+
+    fn set_avail_ring(&self, ring_idx: usize, desc_idx: u16) {
+        unsafe {
+            // ring starts at offset 4 bytes (after flags + idx)
+            let ring_ptr = (self.avail_base as *mut u16).add(2 + ring_idx);
+            ptr::write_volatile(ring_ptr, desc_idx);
+        }
+    }
+
+    // --- Used ring accessors (raw pointer math) ---
+    // Layout: [flags: u16][idx: u16][ring: VringUsedElem * qsize][avail_event: u16]
+
+    fn used_idx(&self) -> u16 {
+        unsafe { ptr::read_volatile((self.used_base as *const u16).add(1)) }
+    }
+
+    fn used_ring_elem(&self, ring_idx: usize) -> VringUsedElem {
+        unsafe {
+            // ring starts at offset 4 bytes (after flags + idx)
+            let elem_ptr = (self.used_base.add(4) as *const VringUsedElem).add(ring_idx);
+            ptr::read_volatile(elem_ptr)
+        }
     }
 
     /// Allocate one descriptor from the free list.
@@ -200,30 +209,25 @@ impl Virtqueue {
 
     /// Push a descriptor chain head into the available ring.
     fn push_avail(&mut self, desc_idx: u16) {
-        unsafe {
-            let avail = &mut *self.avail;
-            let ring_idx = avail.idx as usize % QUEUE_SIZE;
-            avail.ring[ring_idx] = desc_idx;
-            // Memory barrier: ensure descriptor is visible before updating index
-            core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
-            avail.idx = avail.idx.wrapping_add(1);
-        }
+        let ring_idx = self.avail_idx() as usize % self.qsize;
+        self.set_avail_ring(ring_idx, desc_idx);
+        // Memory barrier: ensure descriptor is visible before updating index
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+        self.set_avail_idx(self.avail_idx().wrapping_add(1));
     }
 
     /// Pop completed entries from the used ring.
     /// Returns (descriptor_chain_head, bytes_written).
     fn pop_used(&mut self) -> Option<(u16, u32)> {
-        unsafe {
-            let used = &*self.used;
-            if self.last_used_idx == used.idx {
-                return None;
-            }
-            core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
-            let ring_idx = self.last_used_idx as usize % QUEUE_SIZE;
-            let elem = used.ring[ring_idx];
-            self.last_used_idx = self.last_used_idx.wrapping_add(1);
-            Some((elem.id as u16, elem.len))
+        let idx = self.used_idx();
+        if self.last_used_idx == idx {
+            return None;
         }
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+        let ring_idx = self.last_used_idx as usize % self.qsize;
+        let elem = self.used_ring_elem(ring_idx);
+        self.last_used_idx = self.last_used_idx.wrapping_add(1);
+        Some((elem.id as u16, elem.len))
     }
 }
 
@@ -251,7 +255,7 @@ pub struct VirtioNet {
 
 // Safety: VirtioNet is only accessed from one context at a time (the
 // NetworkAgent runs single-threaded within SART's cooperative scheduler).
-// The raw pointers in Virtqueue point to heap memory owned by the struct.
+// The raw pointers in Virtqueue point to DMA memory owned by the struct.
 unsafe impl Send for VirtioNet {}
 
 impl VirtioNet {
@@ -261,19 +265,37 @@ impl VirtioNet {
     /// 1. Reset device
     /// 2. Set ACKNOWLEDGE + DRIVER status
     /// 3. Negotiate features (we only need MAC)
-    /// 4. Set up RX and TX virtqueues
+    /// 4. Read queue sizes from device, allocate virtqueues
     /// 5. Read MAC address
     /// 6. Set DRIVER_OK — device is live
     pub fn new(io_base: u16) -> Self {
+        // Read queue sizes from device BEFORE allocating virtqueues.
+        // In virtio legacy, the device dictates the queue size.
+        let rx_qsize = Self::read_queue_size(io_base, 0);
+        let tx_qsize = Self::read_queue_size(io_base, 1);
+        crate::println!("[Network] virtio queues: RX size={}, TX size={}", rx_qsize, tx_qsize);
+
         let mut dev = Self {
             io_base,
             mac: [0u8; 6],
-            rx_queue: Virtqueue::new(),
-            tx_queue: Virtqueue::new(),
+            rx_queue: Virtqueue::new(rx_qsize as usize),
+            tx_queue: Virtqueue::new(tx_qsize as usize),
             rx_buffers: Vec::new(),
         };
         dev.init();
+        crate::println!("[Network] virtio RX queue: phys_base={:#x}, page_num={}",
+            dev.rx_queue.phys_base, dev.rx_queue.page_number());
+        crate::println!("[Network] virtio TX queue: phys_base={:#x}, page_num={}",
+            dev.tx_queue.phys_base, dev.tx_queue.page_number());
         dev
+    }
+
+    /// Read the queue size for a specific queue index from the device.
+    fn read_queue_size(io_base: u16, queue_idx: u16) -> u16 {
+        unsafe {
+            Port::<u16>::new(io_base + REG_QUEUE_SELECT).write(queue_idx);
+            Port::<u16>::new(io_base + REG_QUEUE_SIZE).read()
+        }
     }
 
     // --- I/O port helpers ---
@@ -329,7 +351,8 @@ impl VirtioNet {
     /// Pre-allocate RX buffers in DMA memory and submit them to the RX virtqueue.
     /// The device will write received Ethernet frames into these buffers.
     fn fill_rx_queue(&mut self) {
-        for _ in 0..QUEUE_SIZE {
+        let qsize = self.rx_queue.qsize;
+        for _ in 0..qsize {
             let (virt, phys) = dma_alloc(RX_BUF_SIZE, 16);
             self.rx_buffers.push(RxBufEntry { virt, phys });
 
@@ -386,6 +409,7 @@ impl VirtioNet {
 
         self.tx_queue.push_avail(desc_idx);
         self.io_write16(REG_QUEUE_NOTIFY, 1); // Notify TX queue
+        crate::println!("[Network] TX: sent {} bytes (phys={:#x})", total_len, tx_phys);
     }
 
     /// Receive a pending Ethernet frame (non-blocking).
@@ -394,7 +418,12 @@ impl VirtioNet {
     /// strips the virtio-net header, copies the Ethernet frame into `buf`,
     /// and returns the number of bytes. Re-submits the buffer for reuse.
     pub fn recv_raw_frame(&mut self, buf: &mut [u8]) -> Option<usize> {
+        // Acknowledge any pending interrupts (read clears the ISR register).
+        // Some QEMU versions won't update the used ring again until acked.
+        let _ = self.io_read8(REG_ISR_STATUS);
+
         let (desc_idx, total_len) = self.rx_queue.pop_used()?;
+        crate::println!("[Network] RX: got {} bytes (desc={})", total_len, desc_idx);
 
         // The device wrote total_len bytes including the virtio-net header
         let frame_len = total_len as usize - VIRTIO_NET_HDR_SIZE;
