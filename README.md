@@ -195,7 +195,7 @@ This is that OS.
 
 ## Status
 
-Active development. Building in public, one phase at a time.
+MVP Working and working on real x86_64 bare-metal.
 
 ## License
 
