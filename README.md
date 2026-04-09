@@ -27,6 +27,11 @@ Every existing operating system treats AI as an application — a process runnin
 
 This isn't Linux with an AI wrapper. This is what an operating system looks like when you throw away fifty years of assumptions and ask: *what if the machine's primary user was a mind?*
 
+![WhatsApp Image 2026-04-08 at 11 34 09](https://github.com/user-attachments/assets/7ad2504d-33df-430a-befb-a593585ac88f)
+![WhatsApp Image 2026-04-08 at 11 36 07](https://github.com/user-attachments/assets/a69b3dc8-d173-452d-b353-27f2e926db4f)
+![WhatsApp Image 2026-04-08 at 11 52 26](https://github.com/user-attachments/assets/2938594c-584e-4cda-b00c-fc1fa7be7747)
+
+
 ## Architecture
 
 ```
