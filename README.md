@@ -88,23 +88,40 @@ make -f build/Makefile run
 
 **Requirements:** Rust nightly, QEMU, xorriso, nasm
 
-### Cloud AI Setup (Optional)
+### AI Backend Setup (Required)
 
-By default, Squirrel boots with local inference. To use a cloud AI backend (Gemini, OpenAI, or Anthropic), add your API key in `kernel/src/main.rs` before building:
+Squirrel needs a cloud AI API key to work. There are two ways to set it up:
+
+**Option A — Hardcode before building (recommended for quick setup):**
+
+Open `kernel/src/main.rs`, find **line 197** (`settings::init();`), and add this line right after it:
 
 ```rust
-// Add this after settings::init(); in _start()
 inference_engine::configure("gemini", "YOUR_API_KEY", "gemini-2.5-flash", "");
 ```
 
-Supported backends:
+So it looks like:
+```rust
+    settings::init();
+
+    inference_engine::configure("gemini", "YOUR_API_KEY", "gemini-2.5-flash", "");
+
+    // 8. APIC — disable legacy PIC, enable Local APIC, start 100 Hz timer
+```
+
+> **Do not commit your API key.** This is a local-only change for running in QEMU.
+
+**Option B — Configure at runtime:**
+
+Boot the OS without a key, then type `settings` in the Squirrel shell. It will show a menu to select a backend and enter your API key. This works but typing a long API key in the QEMU console can be tedious.
+
+**Supported backends:**
+
 | Backend | Provider arg | Model examples |
 |---------|-------------|----------------|
 | Gemini | `"gemini"` | `"gemini-2.5-flash"`, `"gemini-2.0-flash"` |
 | OpenAI | `"openai"` | `"gpt-4o"`, `"gpt-4o-mini"` |
 | Anthropic | `"anthropic"` | `"claude-sonnet-4-6"`, `"claude-haiku-4-5-20251001"` |
-
-> **Note:** Do not commit your API key. You can also configure the backend at runtime by typing `settings` in the Squirrel shell.
 
 ### QEMU Targets
 
