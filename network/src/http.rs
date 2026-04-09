@@ -41,16 +41,9 @@ impl HttpClient {
         headers: &[(&str, &str)],
         body: &[u8],
     ) -> Result<HttpResponse, &'static str> {
-        // 1. Parse the URL into hostname, port, path, and whether it's HTTPS
         let (hostname, port, path, is_https) = parse_url(url)?;
 
-        // 2. DNS resolve: hostname → IPv4 address
-        let ip = stack.resolve(hostname)?;
-
-        // 3. TCP connect: 3-way handshake
-        let tcp_handle = stack.tcp_connect(ip, port)?;
-
-        // 4. Build the HTTP/1.1 request
+        // Build HTTP request headers
         let mut request = format!(
             "POST {} HTTP/1.1\r\n\
              Host: {}\r\n\
@@ -61,34 +54,39 @@ impl HttpClient {
         for (key, value) in headers {
             request.push_str(&format!("{}: {}\r\n", key, value));
         }
-        request.push_str("Connection: close\r\n\r\n");
 
-        // Combine headers and body into a single buffer for TLS path
-        let mut full_request = request.into_bytes();
-        full_request.extend_from_slice(body);
+        if is_https {
+            // HTTPS with connection pooling — keep-alive to reuse TLS
+            request.push_str("Connection: keep-alive\r\n\r\n");
+            let mut full_request = request.into_bytes();
+            full_request.extend_from_slice(body);
 
-        let result = if is_https {
-            // 5a. HTTPS: perform TLS handshake and send/receive encrypted
-            let response_bytes = crate::tls::tls_post(
-                stack,
-                tcp_handle,
-                hostname,
-                &full_request,
+            // Try cached TLS connection first (skips DNS + TCP + TLS handshake)
+            if let Ok(raw) = crate::tls::tls_try_reuse(stack, hostname, &full_request) {
+                return parse_http_response(&raw);
+            }
+
+            // No cached connection — full DNS + TCP + TLS setup
+            let ip = stack.resolve(hostname)?;
+            let tcp_handle = stack.tcp_connect(ip, port)?;
+            let raw = crate::tls::tls_new_and_cache(
+                stack, tcp_handle, hostname, &full_request,
             )?;
-            parse_http_response(&response_bytes)
+            // Don't close TCP socket — it's cached for reuse
+            parse_http_response(&raw)
         } else {
-            // 5b. HTTP: send over plain TCP
+            // Plain HTTP — no pooling
+            request.push_str("Connection: close\r\n\r\n");
+            let mut full_request = request.into_bytes();
+            full_request.extend_from_slice(body);
+
+            let ip = stack.resolve(hostname)?;
+            let tcp_handle = stack.tcp_connect(ip, port)?;
             tcp_send_all(stack, tcp_handle, &full_request)?;
-
-            // 6. Read the full response
-            let response_bytes = tcp_read_to_end(stack, tcp_handle)?;
-            parse_http_response(&response_bytes)
-        };
-
-        // Clean up the TCP socket so it doesn't linger in the socket set
-        stack.tcp_close(tcp_handle);
-
-        result
+            let raw = tcp_read_to_end(stack, tcp_handle)?;
+            stack.tcp_close(tcp_handle);
+            parse_http_response(&raw)
+        }
     }
 }
 

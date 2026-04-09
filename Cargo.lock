@@ -1018,6 +1018,7 @@ dependencies = [
  "squirrel-glass-box",
  "squirrel-inference-engine",
  "squirrel-settings",
+ "svfs",
 ]
 
 [[package]]

@@ -300,6 +300,28 @@ impl Svfs {
         results
     }
 
+    /// Read the raw tag block for an object identified by its content hash.
+    ///
+    /// Returns the tag string (up to 512 bytes). The tag block lives
+    /// immediately after the object's data blocks on disk.
+    pub fn get_tags(&self, hash: &ContentHash) -> Option<String> {
+        let index = self.index.lock();
+        let entry = index.iter().find(|e| &e.hash == hash)?;
+
+        let data_blocks = if entry.data_size == 0 {
+            1
+        } else {
+            ((entry.data_size as usize) + BLOCK_SIZE - 1) / BLOCK_SIZE
+        };
+        let tag_lba = entry.data_lba + data_blocks as u64;
+
+        let mut tag_block = [0u8; BLOCK_SIZE];
+        self.device.lock().read_blocks(tag_lba, 1, &mut tag_block).ok()?;
+
+        let raw = core::str::from_utf8(&tag_block).unwrap_or("").trim_matches('\0');
+        Some(String::from(raw))
+    }
+
     /// Write the in-memory index and superblock back to disk.
     fn persist_index(&self) -> Result<(), SvfsError> {
         let index = self.index.lock();
@@ -332,6 +354,78 @@ impl Svfs {
         self.device.lock().write_blocks(0, 1, &sb_buf)?;
 
         Ok(())
+    }
+
+    /// Find an object by its human-readable name.
+    ///
+    /// Scans the index for the first entry whose name matches (case-insensitive).
+    /// Returns the content hash if found, which can be passed to `retrieve()`.
+    pub fn find_by_name(&self, name: &str) -> Option<ContentHash> {
+        let index = self.index.lock();
+        let needle = name.as_bytes();
+        for entry in index.iter() {
+            let entry_name = &entry.name[..entry.name_len as usize];
+            if entry_name.len() == needle.len()
+                && entry_name
+                    .iter()
+                    .zip(needle.iter())
+                    .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+            {
+                return Some(entry.hash);
+            }
+        }
+        None
+    }
+
+    /// List all stored objects.
+    ///
+    /// Returns a Vec of (name, object_type, data_size) tuples for every
+    /// object in the index. Used by the primary agent's "list files" command.
+    pub fn list_all(&self) -> Vec<(String, ObjectType, u32)> {
+        let index = self.index.lock();
+        let mut results = Vec::new();
+        for entry in index.iter() {
+            let name = core::str::from_utf8(&entry.name[..entry.name_len as usize])
+                .unwrap_or("<invalid>");
+            let obj_type = match entry.object_type {
+                0 => ObjectType::Data,
+                1 => ObjectType::Config,
+                2 => ObjectType::Code,
+                3 => ObjectType::Model,
+                _ => ObjectType::Data,
+            };
+            results.push((String::from(name), obj_type, entry.data_size));
+        }
+        results
+    }
+
+    /// Delete an object by name.
+    ///
+    /// Removes the entry from the in-memory index and persists the change.
+    /// The data blocks on disk are NOT reclaimed (append-only in MVP).
+    /// Returns true if an object was found and deleted, false if not found.
+    pub fn delete_by_name(&self, name: &str) -> Result<bool, SvfsError> {
+        let needle = name.as_bytes();
+        let mut index = self.index.lock();
+        let pos = index.iter().position(|entry| {
+            let entry_name = &entry.name[..entry.name_len as usize];
+            entry_name.len() == needle.len()
+                && entry_name
+                    .iter()
+                    .zip(needle.iter())
+                    .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+        });
+
+        if let Some(i) = pos {
+            index.remove(i);
+            // Update superblock count
+            self.superblock.lock().object_count = index.len() as u32;
+            drop(index); // release lock before persisting
+            self.persist_index()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     /// Number of objects currently stored.

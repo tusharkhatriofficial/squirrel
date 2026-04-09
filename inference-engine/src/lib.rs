@@ -87,7 +87,7 @@ pub fn get_api_settings(
         match provider {
             ApiProvider::OpenAi => String::from("gpt-4o"),
             ApiProvider::Anthropic => String::from("claude-sonnet-4-20250514"),
-            ApiProvider::Gemini => String::from("gemini-pro"),
+            ApiProvider::Gemini => String::from("gemini-2.5-flash"),
             ApiProvider::Custom => String::from("default"),
         }
     } else {
