@@ -76,17 +76,44 @@ Everything is Rust. No C runtime. No libc. No POSIX. No exceptions.
 
 ```bash
 # Clone
-git clone https://github.com/anthropics/squirrel-aios.git
-cd squirrel-aios
+git clone https://github.com/tusharkhatriofficial/squirrel.git
+cd squirrel
 
 # Build (Rust nightly auto-installed via rust-toolchain.toml)
 make -f build/Makefile build
 
-# Run in QEMU
+# Run in QEMU (virtio-net, 4GB RAM)
 make -f build/Makefile run
 ```
 
 **Requirements:** Rust nightly, QEMU, xorriso, nasm
+
+### Cloud AI Setup (Optional)
+
+By default, Squirrel boots with local inference. To use a cloud AI backend (Gemini, OpenAI, or Anthropic), add your API key in `kernel/src/main.rs` before building:
+
+```rust
+// Add this after settings::init(); in _start()
+inference_engine::configure("gemini", "YOUR_API_KEY", "gemini-2.5-flash", "");
+```
+
+Supported backends:
+| Backend | Provider arg | Model examples |
+|---------|-------------|----------------|
+| Gemini | `"gemini"` | `"gemini-2.5-flash"`, `"gemini-2.0-flash"` |
+| OpenAI | `"openai"` | `"gpt-4o"`, `"gpt-4o-mini"` |
+| Anthropic | `"anthropic"` | `"claude-sonnet-4-6"`, `"claude-haiku-4-5-20251001"` |
+
+> **Note:** Do not commit your API key. You can also configure the backend at runtime by typing `settings` in the Squirrel shell.
+
+### QEMU Targets
+
+```bash
+make -f build/Makefile run            # virtio-net (default, fastest)
+make -f build/Makefile run-e1000      # Intel e1000 NIC (real hardware driver)
+make -f build/Makefile run-rtl8139    # Realtek RTL8139 NIC
+make -f build/Makefile debug          # Launch with GDB attached
+```
 
 ## What it looks like
 
